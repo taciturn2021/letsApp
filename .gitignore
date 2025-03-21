@@ -1,0 +1,4 @@
+/venv
+.env
+start_server.sh
+__pycache__/

@@ -2,6 +2,7 @@ This is going to be a chatApp that is sort of a whatsapp clone/messenger clone. 
 - Backend using flask in python
 - Database MongoDB
 - Message sending / receiving between different users.
+- Calling between different users
 - Group chats
 - Emojis sending and receving in messages.
 - File sending and receving in messages.

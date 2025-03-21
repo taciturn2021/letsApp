@@ -4,13 +4,13 @@ from bson import ObjectId
 from app import mongo
 
 class File:
-    """File model for handling file uploads and attachments."""
+    """File model for handling document/non-media file uploads and attachments."""
     
     @staticmethod
     def save_file_metadata(filename, original_filename, file_size, file_type, uploader_id, 
                           message_id=None, group_message_id=None):
         """
-        Save file metadata to the database
+        Save file metadata to the database for document files
         
         Parameters:
         - filename: The stored filename on the server

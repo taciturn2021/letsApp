@@ -1,0 +1,11 @@
+flask
+pymongo
+flask-pymongo
+python-dotenv
+bcrypt
+flask-jwt-extended
+flask-socketio
+flask-cors
+Werkzeug
+pydantic
+python-dateutil

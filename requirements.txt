@@ -9,3 +9,5 @@ flask-cors
 Werkzeug
 pydantic
 python-dateutil
+marshmallow
+Flask-Limiter

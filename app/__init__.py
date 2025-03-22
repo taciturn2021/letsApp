@@ -36,10 +36,19 @@ def create_app(test_config=None, with_socketio=True):
     # Initialize extensions
     mongo.init_app(app)
     jwt.init_app(app)
-    CORS(app)
+    
+    # Configure CORS with proper settings
+    CORS(app, 
+         resources={r"/*": {
+             "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],  # Add your frontend origins
+             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+             "allow_headers": ["Content-Type", "Authorization"],
+             "supports_credentials": True
+         }}
+    )
     
     #configure Flask-Limiter
-    Limiter = Limiter(
+    limiter = Limiter(
         get_remote_address,
         app=app,
         default_limits=["200 per day", "50 per hour"]

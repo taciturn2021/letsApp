@@ -1,4 +1,4 @@
-from marshamallow import Schema, fields , validate
+from marshmallow import Schema, fields, validate
 
 class UserRegistrationSchema(Schema):
     username = fields.Str(required=True, validate=validate.Length(min=3, max=50))

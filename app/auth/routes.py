@@ -8,17 +8,25 @@ from flask_jwt_extended import (
 from app.auth import bp
 from app.models.user import User
 from app.models.presence import Presence
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from marshmallow import ValidationError
+from app.schemas.schema import UserRegistrationSchema, UserLoginSchema
+
+limiter = Limiter(key_func=get_remote_address)
 
 @bp.route('/register', methods=['POST'])
+@limiter.limit("5 per minute")
 def register():
     """Register a new user"""
     data = request.get_json()
+    schema = UserRegistrationSchema()
     
-    # Validate required fields
-    required_fields = ['username', 'email', 'password']
-    for field in required_fields:
-        if field not in data:
-            return jsonify({"error": f"Missing required field: {field}"}), 400
+    try:
+        validated_data = schema.load(data)
+        
+    except ValidationError as err:
+        return jsonify(err.messages), 400
     
     # Check if user already exists
     if User.get_by_email(data['email']):
@@ -54,13 +62,16 @@ def register():
     }), 201
 
 @bp.route('/login', methods=['POST'])
+@limiter.limit("10 per minute")
 def login():
     """Log in a user"""
     data = request.get_json()
+    schema = UserLoginSchema()
     
-    # Validate required fields
-    if 'email' not in data or 'password' not in data:
-        return jsonify({"error": "Email and password are required"}), 400
+    try:
+        validated_data = schema.load(data)
+    except ValidationError as err:
+        return jsonify(err.messages), 400
     
     # Authenticate user
     user = User.authenticate(data['email'], data['password'])

@@ -4,6 +4,8 @@ from flask_pymongo import PyMongo
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from dotenv import load_dotenv
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 mongo = PyMongo()
 jwt = JWTManager()
@@ -35,6 +37,13 @@ def create_app(test_config=None, with_socketio=True):
     mongo.init_app(app)
     jwt.init_app(app)
     CORS(app)
+    
+    #configure Flask-Limiter
+    Limiter = Limiter(
+        get_remote_address,
+        app=app,
+        default_limits=["200 per day", "50 per hour"]
+    )
     
     # Register blueprints
     from app.api import bp as api_bp

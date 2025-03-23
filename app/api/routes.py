@@ -16,30 +16,4 @@ def get_users():
             del user['password']
     return jsonify({"users": users})
 
-@bp.route('/users', methods=['POST'])
-def create_user():
-    """Create a new user"""
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
-    
-    required_fields = ['username', 'email', 'password']
-    for field in required_fields:
-        if field not in data:
-            return jsonify({"error": f"Missing required field: {field}"}), 400
-    
-    # Check if user already exists
-    if User.get_by_email(data['email']):
-        return jsonify({"error": "Email already registered"}), 409
-    if User.get_by_username(data['username']):
-        return jsonify({"error": "Username already taken"}), 409
-    
-    # Create user
-    user = User.create(
-        username=data['username'],
-        email=data['email'],
-        password=data['password'],
-        full_name=data.get('full_name')
-    )
-    
-    return jsonify({"user": user, "message": "User created successfully"}), 201
+

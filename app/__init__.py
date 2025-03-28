@@ -30,19 +30,29 @@ def create_app(test_config=None, with_socketio=True):
     try:
         os.makedirs(app.instance_path)
         os.makedirs(app.config['UPLOAD_FOLDER'])
+        os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'profile_pictures'))
     except OSError:
         pass
     
     # Initialize extensions
     mongo.init_app(app)
     jwt.init_app(app)
-    CORS(app)
+    
+    # Configure CORS with proper settings
+    CORS(app, 
+         resources={r"/*": {
+             "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],  # Add your frontend origins
+             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+             "allow_headers": ["Content-Type", "Authorization"],
+             "supports_credentials": True
+         }}
+    )
     
     #configure Flask-Limiter
-    Limiter = Limiter(
+    limiter = Limiter(
         get_remote_address,
         app=app,
-        default_limits=["200 per day", "50 per hour"]
+        default_limits=["200000 per day", "5000 per hour"]
     )
     
     # Register blueprints
@@ -51,6 +61,9 @@ def create_app(test_config=None, with_socketio=True):
     
     from app.auth import bp as auth_bp
     app.register_blueprint(auth_bp, url_prefix='/auth')
+    
+    from app.api.user_routes import bp as users_bp
+    app.register_blueprint(users_bp, url_prefix='/api/users')
     
     # Initialize Socket.IO (optional)
     socketio = None

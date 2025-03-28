@@ -21,7 +21,7 @@
         "email": { "type": "string", "format": "email" },
         "password": { "type": "string", "description": "Bcrypt hashed password" },
         "full_name": { "type": ["string", "null"] },
-        "profile_picture": { "type": ["string", "null"] },
+        "profile_picture": { "type": ["string", "null"], "description": "Reference to Media document ID" },
         "created_at": { "$ref": "#/definitions/timestamp" },
         "updated_at": { "$ref": "#/definitions/timestamp" },
         "last_seen": { "$ref": "#/definitions/timestamp" },
@@ -34,7 +34,14 @@
             "read_receipts_enabled": { "type": "boolean" },
             "typing_indicators_enabled": { "type": "boolean" }
           }
-        }
+        },
+        "password_history": {
+          "type": "array",
+          "items": { "type": "string", "description": "Previous bcrypt hashed passwords" },
+          "maxItems": 5,
+          "description": "Last 5 password hashes for preventing password reuse"
+        },
+        "last_password_change": { "$ref": "#/definitions/timestamp" }
       }
     },
     "Message": {
@@ -168,7 +175,7 @@
       "required": ["_id", "filename", "original_filename", "file_size", "media_type", "mime_type", "uploader_id", "created_at", "view_count", "is_deleted"],
       "properties": {
         "_id": { "$ref": "#/definitions/objectId" },
-        "filename": { "type": "string" },
+        "filename": { "type": "string", "description": "Secure randomly generated filename" },
         "original_filename": { "type": "string" },
         "file_size": { "type": "number" },
         "media_type": {
@@ -180,12 +187,16 @@
         "message_id": { "$ref": "#/definitions/objectId" },
         "group_message_id": { "$ref": "#/definitions/objectId" },
         "duration": { "type": "number" },
-        "thumbnail": { "type": "string" },
+        "thumbnail": { 
+          "type": "string",
+          "description": "Filename of the thumbnail for profile pictures and images"
+        },
         "width": { "type": "number" },
         "height": { "type": "number" },
         "created_at": { "$ref": "#/definitions/timestamp" },
         "view_count": { "type": "number" },
-        "is_deleted": { "type": "boolean" }
+        "is_deleted": { "type": "boolean" },
+        "optimized": { "type": "boolean", "description": "Whether the image has been optimized" }
       }
     },
     "Presence": {
@@ -226,6 +237,18 @@
         "download_count": { "type": "number" },
         "is_deleted": { "type": "boolean" }
       }
+    },
+    "PasswordReset": {
+      "type": "object",
+      "required": ["_id", "user_id", "token", "expiry", "created_at"],
+      "properties": {
+        "_id": { "$ref": "#/definitions/objectId" },
+        "user_id": { "$ref": "#/definitions/objectId" },
+        "token": { "type": "string" },
+        "expiry": { "$ref": "#/definitions/timestamp" },
+        "created_at": { "$ref": "#/definitions/timestamp" },
+        "used": { "type": "boolean", "default": false }
+      }
     }
   },
   "type": "object",
@@ -265,6 +288,10 @@
     "files": {
       "type": "array",
       "items": { "$ref": "#/definitions/File" }
+    },
+    "password_reset_tokens": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/PasswordReset" }
     }
   }
 }

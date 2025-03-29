@@ -4,6 +4,7 @@ from flask import current_app
 from app.models.message import Message  # Import the Message model
 import datetime
 import jwt
+import logging
 
 def validate_token(token):
     """Validate JWT token and return the decoded token or None if invalid"""
@@ -47,38 +48,60 @@ def register_handlers(socketio):
     @socketio.on('send_message')
     def handle_send_message(data):
         """Handle sending a message."""
+        logging.info(f"handle_send_message received data: {data}") # Log received data
         token = data.get('token')
         decoded_token = validate_token(token)
         if not decoded_token:
+            logging.error("handle_send_message: Invalid or missing token") # Log error
             emit('error', {'message': 'Invalid or missing token'})
             return
 
+        logging.info(f"handle_send_message decoded token: {decoded_token}") # Log decoded token
+
         room = f"{min(decoded_token['sub'], data['recipient'])}_{max(decoded_token['sub'], data['recipient'])}"
+        logging.info(f"handle_send_message determined room: {room}") # Log room name
         sender_id = decoded_token['sub']  # Use the user ID from the token
         recipient_id = data['recipient']
         content = data['content']
 
-        # Create a new message using the Message model
-        message = Message.create(
-            sender_id=sender_id,
-            recipient_id=recipient_id,
-            content=content
-        )
+        try:
+            # Create a new message using the Message model
+            logging.info(f"handle_send_message attempting to create message: sender={sender_id}, recipient={recipient_id}, content={content}") # Log before create
+            message = Message.create(
+                sender_id=sender_id,
+                recipient_id=recipient_id,
+                content=content
+            )
+            logging.info(f"handle_send_message message created successfully: {message}") # Log after create
+        except Exception as e:
+            logging.error(f"handle_send_message error creating message: {e}") # Log creation error
+            emit('error', {'message': 'Failed to save message'})
+            return
 
-        # Emit the message to the room
-        emit('receive_message', {
-            'id': str(message['_id']),
-            'sender': str(message['sender_id']),
-            'recipient': str(message['recipient_id']),
-            'content': message['content'],
-            'timestamp': message['created_at'].isoformat(),
-            'status': message['status']
-        }, room=room)
+        try:
+            # Emit the message to the room
+            message_payload = {
+                'id': str(message['_id']),
+                'sender': str(message['sender_id']),
+                'recipient': str(message['recipient_id']),
+                'content': message['content'],
+                'timestamp': message['created_at'].isoformat(),
+                'status': message['status']
+            }
+            logging.info(f"handle_send_message emitting receive_message to room {room}: {message_payload}") # Log before emit
+            emit('receive_message', message_payload, room=room)
+            logging.info(f"handle_send_message emitted receive_message successfully") # Log after emit
+        except Exception as e:
+            logging.error(f"handle_send_message error emitting message: {e}") # Log emission error
+            # Optionally notify sender of emission failure, though they get the ack below
+            pass
         
         # Return acknowledgment to the sender
-        return {
+        ack_payload = {
             'status': 'success',
             'message_id': str(message['_id']),
             'timestamp': message['created_at'].isoformat()
         }
+        logging.info(f"handle_send_message returning acknowledgment: {ack_payload}") # Log acknowledgment
+        return ack_payload
 

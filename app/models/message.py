@@ -31,7 +31,7 @@ class Message:
             "updated_at": datetime.datetime.utcnow(),
             "status": Message.STATUS_SENT,
             "is_deleted": False,
-            "room_id" : str(ObjectId(sender_id + recipient_id)),  # Generate a new room ID for the message
+            "room_id" : f"{min(sender_id, recipient_id)}_{max(sender_id, recipient_id)}",  # Generate a consistent room ID for the message
         }
         
         result = mongo.db.messages.insert_one(message)

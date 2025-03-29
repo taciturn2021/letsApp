@@ -41,7 +41,7 @@ def create_app(test_config=None, with_socketio=True):
     # Configure CORS with proper settings
     CORS(app, 
          resources={r"/*": {
-             "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],  # Add your frontend origins
+             "origins": ["http://localhost:5001", "http://127.0.0.1:5001"],  # Add your frontend origins
              "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
              "allow_headers": ["Content-Type", "Authorization"],
              "supports_credentials": True
@@ -73,10 +73,16 @@ def create_app(test_config=None, with_socketio=True):
             socketio = init_socketio(app)
         except ImportError:
             print("SocketIO module not available, continuing without realtime features.")
-    
+   
+    # Initialize Socket.IO
+    if with_socketio:
+        socketio.init_app(app, cors_allowed_origins="http://localhost:5001")
+        
+        
     # Test route
     @app.route('/ping')
     def ping():
         return {"message": "pong", "status": "success"}
+    
     
     return app

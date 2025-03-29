@@ -1,14 +1,7 @@
-from flask_socketio import SocketIO
+# Export the socketio instance initialization function
+# But don't define socketio here to avoid circular imports
 
-socketio = SocketIO(cors_allowed_origins="*") 
-
-def init_socketio(app):
-    """Initialize SocketIO extension"""
-    socketio.init_app(app, cors_allowed_origins="*")
-    # Import socket event handlers
-    from app.realtime import events
-    from app.realtime import presence
-    from app.realtime import typing
-    from app.realtime import chat
-    
-    return socketio
+def get_socketio():
+    """Get the SocketIO instance from the current Flask app"""
+    from flask import current_app
+    return current_app.extensions.get('socketio')

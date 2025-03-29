@@ -24,6 +24,7 @@ def create_app(test_config=None, with_socketio=True):
         JWT_SECRET_KEY=os.environ.get('JWT_SECRET_KEY', 'jwt_dev_key'),
         JWT_ACCESS_TOKEN_EXPIRES=86400,  # 24 hours
         UPLOAD_FOLDER=os.path.join(app.instance_path, 'uploads'),
+        FRONTEND=os.environ.get('FRONTEND', 'http://localhost:3000')
     )
     
     # Ensure the instance folder exists
@@ -38,15 +39,15 @@ def create_app(test_config=None, with_socketio=True):
     mongo.init_app(app)
     jwt.init_app(app)
     
-    # Configure CORS with proper settings
+    frontend_origin = app.config['FRONTEND']
+    print(f"CORS is configured for origin: {frontend_origin}")
+
+# Replace the existing CORS configuration with this more permissive one for development
     CORS(app, 
-         resources={r"/*": {
-             "origins": ["http://localhost:5001", "http://127.0.0.1:5001"],  # Add your frontend origins
-             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-             "allow_headers": ["Content-Type", "Authorization"],
-             "supports_credentials": True
-         }}
-    )
+     origins=[frontend_origin, "http://localhost:3787"],  # Explicitly add both origins
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization"],
+     supports_credentials=True)
     
     #configure Flask-Limiter
     limiter = Limiter(
@@ -65,24 +66,42 @@ def create_app(test_config=None, with_socketio=True):
     from app.api.user_routes import bp as users_bp
     app.register_blueprint(users_bp, url_prefix='/api/users')
     
-    # Initialize Socket.IO (optional)
-    socketio = None
-    if with_socketio:
-        try:
-            from app.realtime import init_socketio
-            socketio = init_socketio(app)
-        except ImportError:
-            print("SocketIO module not available, continuing without realtime features.")
-   
-    # Initialize Socket.IO
-    if with_socketio:
-        socketio.init_app(app, cors_allowed_origins="http://localhost:5001")
-        
-        
+    from app.api.routes import bp as load_bp
+    app.register_blueprint(load_bp, url_prefix='/api/load')
+    
+
+    
     # Test route
     @app.route('/ping')
     def ping():
         return {"message": "pong", "status": "success"}
     
+    # Initialize Socket.IO only after app is fully set up
+    socketio = None
+    if with_socketio:
+        try:
+            # Use a more specific exception handler to diagnose problems
+            from flask_socketio import SocketIO
+            
+            # Create SocketIO instance
+            socketio = SocketIO()
+            socketio.init_app(app, cors_allowed_origins=[app.config['FRONTEND']])
+            
+            # Register all socket event handlers
+            from app.realtime.events import register_handlers as register_events
+            register_events(socketio)
+            
+            from app.realtime.presence import register_handlers as register_presence
+            register_presence(socketio)
+            
+            from app.realtime.typing import register_handlers as register_typing
+            register_typing(socketio)
+            
+            from app.realtime.chat import register_handlers as register_chat
+            register_chat(socketio)
+            
+            print("SocketIO initialized successfully")
+        except Exception as e:
+            print(f"SocketIO initialization failed: {str(e)}")
     
     return app

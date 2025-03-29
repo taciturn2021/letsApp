@@ -12,9 +12,8 @@ def status():
 @bp.route('/all_users', methods=['GET'])
 def get_users():
     """Get all users (demonstration endpoint)"""
+    print(f"Request from host: {request.remote_addr}, port: {request.environ.get('REMOTE_PORT', 'unknown')}")
     users = list(User.get_all())
-    
-    print(users)
     
     # Remove passwords from the response
     for user in users:

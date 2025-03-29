@@ -12,3 +12,5 @@ python-dateutil
 marshmallow
 Flask-Limiter
 Pillow
+flask-socketio 
+eventlet

@@ -69,7 +69,8 @@ def create_app(test_config=None, with_socketio=True):
     from app.api.routes import bp as load_bp
     app.register_blueprint(load_bp, url_prefix='/api/load')
     
-
+    from app.api.messages_routes import bp as messages_bp
+    app.register_blueprint(messages_bp, url_prefix='/api/messages')
     
     # Test route
     @app.route('/ping')

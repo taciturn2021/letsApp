@@ -2,6 +2,7 @@ from flask_socketio import emit, join_room, leave_room
 from flask_jwt_extended import decode_token
 from flask import current_app
 from app.models.message import Message  # Import the Message model
+from app.models.user import User  # Add User model import
 import datetime
 import jwt
 import logging
@@ -79,10 +80,15 @@ def register_handlers(socketio):
             return
 
         try:
+            # Fetch sender details from User model
+            sender = User.get_by_id(sender_id)
+            
             # Emit the message to the room
             message_payload = {
                 'id': str(message['_id']),
                 'sender': str(message['sender_id']),
+                'sender_name': sender.get('username', ''),  # Use username as sender_name
+                'sender_avatar': sender.get('profile_picture', ''),  # Use profile_picture as sender_avatar
                 'recipient': str(message['recipient_id']),
                 'content': message['content'],
                 'timestamp': message['created_at'].isoformat(),

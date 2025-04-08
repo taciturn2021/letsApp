@@ -23,13 +23,13 @@ def sync_messages():
     direct_conversations = get_direct_conversations(current_user_id)
     
     # Get all group conversations
-    group_conversations = get_group_conversations(current_user_id)
+    # group_conversations = get_group_conversations(current_user_id)
     
     return jsonify({
         "success": True,
         "data": {
-            "direct_conversations": direct_conversations,
-            "group_conversations": group_conversations
+            "direct_conversations": direct_conversations
+            # "group_conversations": group_conversations
         }
     })
 

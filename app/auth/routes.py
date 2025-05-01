@@ -13,6 +13,7 @@ from flask_limiter.util import get_remote_address
 from marshmallow import ValidationError
 from app.schemas.schema import UserRegistrationSchema, UserLoginSchema
 
+# Create a limiter that will be properly configured when the app starts
 limiter = Limiter(key_func=get_remote_address)
 
 @bp.route('/register', methods=['POST'])

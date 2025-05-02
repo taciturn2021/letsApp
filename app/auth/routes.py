@@ -68,6 +68,7 @@ def login():
     """Log in a user"""
     data = request.get_json()
     schema = UserLoginSchema()
+    print("Data received for login")
     
     try:
         validated_data = schema.load(data)

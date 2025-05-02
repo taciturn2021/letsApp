@@ -14,5 +14,5 @@ Flask-Limiter
 Pillow
 flask-socketio 
 eventlet
-python-magic-bin
 python-magic
+python-magic-bin

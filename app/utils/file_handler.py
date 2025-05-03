@@ -4,6 +4,7 @@ import magic
 import hashlib
 import time
 import hmac
+import mimetypes
 from werkzeug.utils import secure_filename
 from PIL import Image
 from io import BytesIO
@@ -12,6 +13,7 @@ from app.models.file import File
 from flask import current_app, url_for
 from gridfs import GridFS
 from app import mongo
+from bson import ObjectId  # Add the missing ObjectId import
 
 ALLOWED_IMAGE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'webm', 'mov', 'avi'}
@@ -52,8 +54,33 @@ def allowed_document_file(filename):
 
 def get_mime_type(file_data):
     """Detect file MIME type"""
-    mime = magic.Magic(mime=True)
-    return mime.from_buffer(file_data)
+    try:
+        # Try to use python-magic first
+        mime = magic.Magic(mime=True)
+        return mime.from_buffer(file_data)
+    except Exception as e:
+        print(f"[DEBUG] Magic library failed: {str(e)}")
+        # Fallback to mimetypes with file signatures
+        
+        # Get first few bytes to check for common file signatures
+        header = file_data[:8] if len(file_data) >= 8 else file_data
+        
+        # Define some common file signatures
+        signatures = {
+            b'\xff\xd8\xff': 'image/jpeg',
+            b'\x89PNG': 'image/png',
+            b'GIF8': 'image/gif',
+            b'%PDF': 'application/pdf',
+            b'PK\x03\x04': 'application/zip',
+        }
+        
+        # Check file signature
+        for sig, mime in signatures.items():
+            if header.startswith(sig):
+                return mime
+                
+        # If we can't determine from signature, try to guess from extension
+        return 'application/octet-stream'
 
 def generate_unique_filename(original_filename):
     """Generate a unique filename for the uploaded file"""
@@ -84,9 +111,9 @@ def generate_signed_url(file_id, expires_in=3600):
         digestmod=hashlib.sha256
     ).hexdigest()
     
-    # Construct and return signed URL
+    # Construct and return signed URL - use the correct endpoint
     return url_for(
-        'api.download_file',
+        'media.get_media_file',  # Changed from 'api.download_file' to 'media.get_media_file'
         file_id=file_id,
         expires_at=expires_at,
         signature=signature,
@@ -106,72 +133,96 @@ def save_profile_picture(file, uploader_id, upload_folder):
     - Success/failure status and message
     - Media document ID if successful
     """
+    print(f"[DEBUG] Starting file upload process...")
+    print(f"[DEBUG] Upload folder: {upload_folder}")
+    
     # Validate file
     if not file:
+        print("[DEBUG] Error: No file provided")
         return {"success": False, "message": "No file provided"}
     
+    print(f"[DEBUG] File name: {file.filename}")
+    
     if not allowed_image_file(file.filename):
+        print(f"[DEBUG] Error: Invalid file type for {file.filename}")
         return {"success": False, "message": "File type not allowed. Allowed types: png, jpg, jpeg, gif, webp"}
     
     # Check file size
-    file.seek(0, os.SEEK_END)
-    file_size = file.tell()
-    file.seek(0)  # Reset file pointer
-    
-    if file_size > MAX_PROFILE_IMAGE_SIZE:
-        return {"success": False, "message": f"File too large. Maximum size is {MAX_PROFILE_IMAGE_SIZE/1024}KB"}
-    
-    # Secure the filename and generate a unique name
-    original_filename = secure_filename(file.filename)
-    filename = generate_unique_filename(original_filename)
-    
-    # Ensure upload folder exists
-    os.makedirs(upload_folder, exist_ok=True)
-    
-    # Save the file
-    file_path = os.path.join(upload_folder, filename)
-    file.save(file_path)
-    
-    # Generate thumbnail
     try:
-        with Image.open(file_path) as img:
-            # Get original dimensions
-            width, height = img.size
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)  # Reset file pointer
+        
+        print(f"[DEBUG] File size: {file_size / 1024:.2f}KB")
+        
+        if file_size > MAX_PROFILE_IMAGE_SIZE:
+            print(f"[DEBUG] Error: File too large ({file_size / 1024:.2f}KB > {MAX_PROFILE_IMAGE_SIZE / 1024}KB)")
+            return {"success": False, "message": f"File too large. Maximum size is {MAX_PROFILE_IMAGE_SIZE/1024}KB"}
+        
+        # Secure the filename and generate a unique name
+        original_filename = secure_filename(file.filename)
+        filename = generate_unique_filename(original_filename)
+        print(f"[DEBUG] Generated unique filename: {filename}")
+        
+        # Ensure upload folder exists
+        os.makedirs(upload_folder, exist_ok=True)
+        
+        # Save the file
+        file_path = os.path.join(upload_folder, filename)
+        print(f"[DEBUG] Saving file to: {file_path}")
+        file.save(file_path)
+        
+        # Generate thumbnail
+        try:
+            with Image.open(file_path) as img:
+                print("[DEBUG] Successfully opened image for thumbnail generation")
+                # Get original dimensions
+                width, height = img.size
+                print(f"[DEBUG] Image dimensions: {width}x{height}")
+                
+                # Create thumbnail
+                thumbnail_filename = f"thumb_{filename}"
+                thumbnail_path = os.path.join(upload_folder, thumbnail_filename)
+                img.thumbnail(THUMBNAIL_SIZE)
+                img.save(thumbnail_path)
+                print(f"[DEBUG] Thumbnail saved: {thumbnail_filename}")
+                
+                # Save media metadata to database
+                print("[DEBUG] Saving media metadata to database...")
+                media_data = Media.save_media_metadata(
+                    filename=filename,
+                    original_filename=original_filename,
+                    file_size=file_size,
+                    media_type=Media.TYPE_IMAGE,
+                    mime_type=file.content_type,
+                    uploader_id=uploader_id,
+                    thumbnail=thumbnail_filename,
+                    width=width,
+                    height=height
+                )
+                
+                print("[DEBUG] File upload completed successfully")
+                return {
+                    "success": True,
+                    "message": "Profile picture uploaded successfully",
+                    "media_id": str(media_data["_id"])
+                }
+        except Exception as e:
+            print(f"[DEBUG] Error processing image: {str(e)}")
+            # Clean up files if there was an error
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"[DEBUG] Cleaned up file: {file_path}")
             
-            # Create thumbnail
-            thumbnail_filename = f"thumb_{filename}"
-            thumbnail_path = os.path.join(upload_folder, thumbnail_filename)
-            img.thumbnail(THUMBNAIL_SIZE)
-            img.save(thumbnail_path)
+            thumbnail_path = os.path.join(upload_folder, f"thumb_{filename}")
+            if os.path.exists(thumbnail_path):
+                os.remove(thumbnail_path)
+                print(f"[DEBUG] Cleaned up thumbnail: {thumbnail_path}")
             
-            # Save media metadata to database
-            media_data = Media.save_media_metadata(
-                filename=filename,
-                original_filename=original_filename,
-                file_size=file_size,
-                media_type=Media.TYPE_IMAGE,
-                mime_type=file.content_type,
-                uploader_id=uploader_id,
-                thumbnail=thumbnail_filename,
-                width=width,
-                height=height
-            )
-            
-            return {
-                "success": True,
-                "message": "Profile picture uploaded successfully",
-                "media_id": str(media_data["_id"])
-            }
+            return {"success": False, "message": f"Error processing image: {str(e)}"}
     except Exception as e:
-        # Clean up files if there was an error
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        
-        thumbnail_path = os.path.join(upload_folder, f"thumb_{filename}")
-        if os.path.exists(thumbnail_path):
-            os.remove(thumbnail_path)
-        
-        return {"success": False, "message": f"Error processing image: {str(e)}"}
+        print(f"[DEBUG] Unexpected error during file upload: {str(e)}")
+        return {"success": False, "message": f"Error uploading file: {str(e)}"}
 
 def save_file_to_gridfs(file, uploader_id, file_type=None, message_id=None, group_message_id=None):
     """

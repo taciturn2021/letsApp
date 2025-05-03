@@ -36,55 +36,67 @@ def upload_media():
     """Upload media file to GridFS"""
     current_user_id = get_jwt_identity()
     
+    print("[DEBUG] Starting media upload endpoint...")
+    
     # Check if request has a file
     if 'file' not in request.files:
+        print("[DEBUG] Error: No file in request")
         return jsonify({"success": False, "message": "No file provided"}), 400
     
-    file = request.files['file']
-    file_type = request.form.get('type')  # Optional file type override
-    message_id = request.form.get('message_id')  # Optional message reference
-    group_message_id = request.form.get('group_message_id')  # Optional group message reference
-    
-    # Process and save the file
-    result = save_file_to_gridfs(
-        file, 
-        current_user_id, 
-        file_type=file_type, 
-        message_id=message_id,
-        group_message_id=group_message_id
-    )
-    
-    if not result["success"]:
-        return jsonify(result), 400
-    
-    # Generate URLs for the file
-    file_id = result["file_id"]
-    file_type = result["type"]
-    
-    # Create response with URLs
-    response = {
-        "success": True,
-        "message": "File uploaded successfully",
-        "file_id": file_id,
-        "type": file_type,
-        "urls": {
-            "direct": url_for('media.get_media_file', file_id=file_id, _external=True),
-        }
-    }
-    
-    # Add thumbnail URL if it's an image
-    if file_type == 'image':
-        response["urls"]["thumbnail"] = url_for(
-            'media.get_media_file', 
-            file_id=file_id, 
-            thumbnail='true',
-            _external=True
+    try:
+        file = request.files['file']
+        print(f"[DEBUG] Received file: {file.filename}")
+        
+        file_type = request.form.get('type')  # Optional file type override
+        message_id = request.form.get('message_id')  # Optional message reference
+        group_message_id = request.form.get('group_message_id')  # Optional group message reference
+        
+        # Process and save the file
+        result = save_file_to_gridfs(
+            file, 
+            current_user_id, 
+            file_type=file_type, 
+            message_id=message_id,
+            group_message_id=group_message_id
         )
-    
-    # Add signed URL for secure access
-    response["urls"]["signed"] = generate_signed_url(file_id)
-    
-    return jsonify(response), 201
+        
+        if not result["success"]:
+            print(f"[DEBUG] Upload failed: {result['message']}")
+            return jsonify(result), 400
+        
+        # Generate URLs for the file
+        file_id = result["file_id"]
+        file_type = result["type"]
+        
+        # Create response with URLs
+        response = {
+            "success": True,
+            "message": "File uploaded successfully",
+            "file_id": file_id,
+            "type": file_type,
+            "urls": {
+                "direct": url_for('media.get_media_file', file_id=file_id, _external=True),
+            }
+        }
+        
+        # Add thumbnail URL if it's an image
+        if file_type == 'image':
+            response["urls"]["thumbnail"] = url_for(
+                'media.get_media_file', 
+                file_id=file_id, 
+                thumbnail='true',
+                _external=True
+            )
+        
+        # Add signed URL for secure access
+        response["urls"]["signed"] = generate_signed_url(file_id)
+        
+        print(f"[DEBUG] Upload successful: {file_id}")
+        return jsonify(response), 201
+        
+    except Exception as e:
+        print(f"[DEBUG] Unexpected exception during upload: {str(e)}")
+        return jsonify({"success": False, "message": f"Error uploading file: {str(e)}"}), 500
 
 @bp.route('/<file_id>', methods=['GET'])
 def get_media_file(file_id):

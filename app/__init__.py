@@ -6,6 +6,11 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+import logging
+
+# Disable PyMongo debug logging
+logging.getLogger('pymongo').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 mongo = PyMongo()
 jwt = JWTManager()
@@ -42,14 +47,14 @@ def create_app(test_config=None, with_socketio=True):
     frontend_origin = app.config['FRONTEND']
     print(f"CORS is configured for origin: {frontend_origin}")
 
-# Replace the existing CORS configuration with this more permissive one for development
+    # Replace the existing CORS configuration with this more permissive one for development
     CORS(app, 
      origins=[frontend_origin, "http://localhost:3787"],  # Explicitly add both origins
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization"],
      supports_credentials=True)
     
-    #configure Flask-Limiter
+    # Configure Flask-Limiter
     limiter = Limiter(
         get_remote_address,
         app=app,

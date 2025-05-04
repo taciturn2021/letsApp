@@ -122,9 +122,10 @@ def register_handlers(socketio):
             attachment_data = data.get('attachment')
             print(f"Message contains attachment object: {attachment_data}")
             
-            # If attachment has file_id, use it directly
-            if attachment_data.get('file_id'):
+            # If attachment has file_id, use it directly - but only if it's not undefined
+            if attachment_data.get('file_id') and attachment_data.get('file_id') != 'undefined':
                 attachment = attachment_data
+                print(f"Using direct attachment data with file_id: {attachment_data.get('file_id')}")
             # If attachment only has filename but no file_id, we need to find the file
             elif attachment_data.get('filename'):
                 filename = attachment_data.get('filename')
@@ -136,8 +137,10 @@ def register_handlers(socketio):
                 file_info = None
                 if attachment_type in ('image', 'video', 'audio'):
                     file_info = Media.get_most_recent_by_user_and_filename(sender_id, filename)
+                    print(f"Media search result: {file_info}")
                 else:
                     file_info = File.get_most_recent_by_user_and_filename(sender_id, filename)
+                    print(f"File search result: {file_info}")
                 
                 if file_info:
                     print(f"Found matching file with ID: {file_info['_id']}")
@@ -155,7 +158,7 @@ def register_handlers(socketio):
                     print(f"WARNING: Could not find recently uploaded file matching '{filename}'")
         
         # Case 2: file_id and file_type directly in the message
-        elif data.get('file_id'):
+        elif data.get('file_id') and data.get('file_id') != 'undefined':
             file_id = data.get('file_id')
             file_type = data.get('file_type', 'document')
             print(f"Message contains direct file reference: {file_id}")
@@ -171,7 +174,7 @@ def register_handlers(socketio):
             first_attachment = data.get('attachments')[0]
             print(f"Message contains attachments array: {data.get('attachments')}")
             
-            if first_attachment.get('id') and not first_attachment.get('id').startswith('uploading-'):
+            if first_attachment.get('id') and first_attachment.get('id') != 'undefined' and not first_attachment.get('id').startswith('uploading-'):
                 attachment = {
                     "file_id": first_attachment.get('id'),
                     "file_type": first_attachment.get('type', 'document'),
@@ -183,12 +186,16 @@ def register_handlers(socketio):
                 filename = first_attachment.get('filename')
                 attachment_type = first_attachment.get('type', 'document')
                 
+                print(f"Looking for recently uploaded file with name: {filename}")
+                
                 # Try to find recently uploaded file with matching name
                 file_info = None
                 if attachment_type in ('image', 'video', 'audio'):
                     file_info = Media.get_most_recent_by_user_and_filename(sender_id, filename)
+                    print(f"Media search result: {file_info}")
                 else:
                     file_info = File.get_most_recent_by_user_and_filename(sender_id, filename)
+                    print(f"File search result: {file_info}")
                 
                 if file_info:
                     attachment = {
@@ -199,6 +206,8 @@ def register_handlers(socketio):
                         "size": file_info.get('file_size', 0)
                     }
                     message_type = attachment_type
+                else:
+                    print(f"WARNING: Could not find recently uploaded file matching '{filename}'")
         
         print(f"Final attachment: {attachment}")
         print(f"Message type: {message_type}")

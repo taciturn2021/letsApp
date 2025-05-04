@@ -16,6 +16,9 @@ from bson import ObjectId
 from gridfs.errors import NoFile
 import io
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint('media', __name__)
 limiter = Limiter(key_func=get_remote_address)
@@ -68,7 +71,9 @@ def upload_media():
         file_id = result["file_id"]
         file_type = result["type"]
         
-        # Create response with URLs
+        print(f"[DEBUG] File uploaded successfully. File ID: {file_id}, Type: {file_type}")
+        
+        # Create response with URLs and important reference data
         response = {
             "success": True,
             "message": "File uploaded successfully",
@@ -91,7 +96,7 @@ def upload_media():
         # Add signed URL for secure access
         response["urls"]["signed"] = generate_signed_url(file_id)
         
-        print(f"[DEBUG] Upload successful: {file_id}")
+        print(f"[DEBUG] Upload successful with response: {response}")
         return jsonify(response), 201
         
     except Exception as e:
@@ -101,84 +106,115 @@ def upload_media():
 @bp.route('/<file_id>', methods=['GET'])
 def get_media_file(file_id):
     """Get media file from GridFS"""
-    use_thumbnail = request.args.get('thumbnail', 'false').lower() == 'true'
-    
-    # Check for token in query parameter for protected files
-    token = request.args.get('token')
-    if token:
-        decoded_token = validate_token_param(token)
-        if not decoded_token:
-            return jsonify({"success": False, "message": "Invalid token"}), 401
-    
-    # For non-image files or when no thumbnail is requested, get the full file
-    if not use_thumbnail:
-        # Get the file metadata
-        media = Media.get_by_id(file_id) or File.get_by_id(file_id)
+    # Validate file_id to handle invalid values like "undefined"
+    if not file_id or file_id in ['undefined', 'null', 'NaN', 'None', '']:
+        logger.error(f"Invalid file_id provided: {file_id}")
+        return jsonify({"success": False, "message": "Invalid file ID"}), 400
         
-        if not media:
-            return jsonify({"success": False, "message": "File not found"}), 404
+    # Check if file_id is a valid ObjectId
+    try:
+        # Just validate that it can be converted to ObjectId
+        ObjectId(file_id)
+    except Exception as e:
+        logger.error(f"Invalid ObjectId format for file_id: {file_id}, Error: {str(e)}")
+        return jsonify({"success": False, "message": "Invalid file ID format"}), 400
+    
+    # At this point, we know file_id is a valid ObjectId
+    try:
+        use_thumbnail = request.args.get('thumbnail', 'false').lower() == 'true'
         
-        # Increment view/download count
-        if isinstance(media, dict) and "media_type" in media:
-            Media.increment_view_count(file_id)
+        # Check for token in query parameter for protected files
+        token = request.args.get('token')
+        if token:
+            decoded_token = validate_token_param(token)
+            if not decoded_token:
+                return jsonify({"success": False, "message": "Invalid token"}), 401
+        
+        # For non-image files or when no thumbnail is requested, get the full file
+        if not use_thumbnail:
+            # Get the file metadata
+            media = Media.get_by_id(file_id)
+            if not media:
+                file = File.get_by_id(file_id)
+                if not file:
+                    return jsonify({"success": False, "message": "File not found"}), 404
+            else:
+                file = None
+                
+            # Determine which model we're working with
+            if media:
+                # Increment view/download count
+                Media.increment_view_count(file_id)
+                
+                # Get the actual file from GridFS
+                gridfs_id = media.get("filename")
+            elif file:
+                # Increment download count
+                File.increment_download_count(file_id)
+                
+                # Get the actual file from GridFS
+                gridfs_id = file.get("filename")
+            else:
+                # This should never happen as we already checked for existence above
+                return jsonify({"success": False, "message": "File not found"}), 404
+                
+            try:
+                # Get the file from GridFS
+                result = get_file_from_gridfs(gridfs_id)
+                
+                if not result["success"]:
+                    return jsonify({"success": False, "message": result["message"]}), 500
+                
+                # Create file-like object from the data
+                file_data = io.BytesIO(result["data"])
+                
+                # Return the file with appropriate MIME type
+                return send_file(
+                    file_data,
+                    mimetype=result["mime_type"],
+                    as_attachment=False,
+                    download_name=(media and media.get("original_filename")) or (file and file.get("original_filename")) or "file"
+                )
+            except NoFile:
+                return jsonify({"success": False, "message": "File content not found"}), 404
+            except Exception as e:
+                logger.error(f"Error retrieving file {file_id}: {str(e)}")
+                return jsonify({"success": False, "message": f"Error retrieving file: {str(e)}"}), 500
         else:
-            File.increment_download_count(file_id)
-        
-        # Get the actual file from GridFS
-        gridfs_id = media.get("filename")
-        
-        try:
-            # Get the file from GridFS
-            result = get_file_from_gridfs(gridfs_id)
+            # Thumbnail requested, get the media
+            media = Media.get_by_id(file_id)
             
-            if not result["success"]:
-                return jsonify({"success": False, "message": result["message"]}), 500
+            if not media or not media.get("thumbnail"):
+                return jsonify({"success": False, "message": "Thumbnail not found"}), 404
             
-            # Create file-like object from the data
-            file_data = io.BytesIO(result["data"])
-            
-            # Return the file with appropriate MIME type
-            return send_file(
-                file_data,
-                mimetype=result["mime_type"],
-                as_attachment=False,
-                download_name=media.get("original_filename")
-            )
-        except NoFile:
-            return jsonify({"success": False, "message": "File content not found"}), 404
-        except Exception as e:
-            return jsonify({"success": False, "message": f"Error retrieving file: {str(e)}"}), 500
-    else:
-        # Thumbnail requested, get the media
-        media = Media.get_by_id(file_id)
-        
-        if not media or not media.get("thumbnail"):
-            return jsonify({"success": False, "message": "Thumbnail not found"}), 404
-        
-        # Get the thumbnail from GridFS
-        thumbnail_id = media.get("thumbnail")
-        
-        try:
             # Get the thumbnail from GridFS
-            result = get_file_from_gridfs(thumbnail_id)
+            thumbnail_id = media.get("thumbnail")
             
-            if not result["success"]:
-                return jsonify({"success": False, "message": result["message"]}), 500
-            
-            # Create file-like object from the data
-            file_data = io.BytesIO(result["data"])
-            
-            # Return the thumbnail with appropriate MIME type
-            return send_file(
-                file_data,
-                mimetype=result["mime_type"],
-                as_attachment=False,
-                download_name=f"thumb_{media.get('original_filename')}"
-            )
-        except NoFile:
-            return jsonify({"success": False, "message": "Thumbnail content not found"}), 404
-        except Exception as e:
-            return jsonify({"success": False, "message": f"Error retrieving thumbnail: {str(e)}"}), 500
+            try:
+                # Get the thumbnail from GridFS
+                result = get_file_from_gridfs(thumbnail_id)
+                
+                if not result["success"]:
+                    return jsonify({"success": False, "message": result["message"]}), 500
+                
+                # Create file-like object from the data
+                file_data = io.BytesIO(result["data"])
+                
+                # Return the thumbnail with appropriate MIME type
+                return send_file(
+                    file_data,
+                    mimetype=result["mime_type"],
+                    as_attachment=False,
+                    download_name=f"thumb_{media.get('original_filename', 'image')}"
+                )
+            except NoFile:
+                return jsonify({"success": False, "message": "Thumbnail content not found"}), 404
+            except Exception as e:
+                logger.error(f"Error retrieving thumbnail for {file_id}: {str(e)}")
+                return jsonify({"success": False, "message": f"Error retrieving thumbnail: {str(e)}"}), 500
+    except Exception as e:
+        logger.error(f"Unexpected error processing file {file_id}: {str(e)}")
+        return jsonify({"success": False, "message": f"Unexpected error: {str(e)}"}), 500
 
 @bp.route('/<file_id>', methods=['DELETE'])
 @jwt_required()

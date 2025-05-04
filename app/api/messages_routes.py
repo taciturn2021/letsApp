@@ -77,6 +77,99 @@ def get_messages_with_user(user_id):
             "message": f"Error retrieving messages: {str(e)}"
         }), 500
 
+@bp.route('/<recipient_id>', methods=['POST'])
+@jwt_required()
+def send_message(recipient_id):
+    """Send a message to a user with proper attachment handling"""
+    current_user_id = get_jwt_identity()
+    data = request.json
+    
+    print(f"\n[API] Sending message from {current_user_id} to {recipient_id}")
+    print(f"[API] Message data: {data}")
+    
+    content = data.get('content', '')
+    message_type = data.get('message_type', 'text')
+    
+    # Process attachment if present
+    attachment = None
+    if data.get('attachment'):
+        attachment_data = data.get('attachment')
+        
+        # Ensure we have a valid file_id
+        if attachment_data.get('file_id') and attachment_data.get('file_id') != 'undefined':
+            attachment = attachment_data
+            print(f"[API] Using attachment with file_id: {attachment_data.get('file_id')}")
+            
+            # If message type is not set, derive it from attachment type
+            if message_type == 'text' and attachment_data.get('file_type'):
+                message_type = attachment_data.get('file_type')
+        else:
+            print(f"[API] Warning: Invalid file_id in attachment: {attachment_data.get('file_id')}")
+    
+    try:
+        # Create the message
+        message = Message.create(
+            sender_id=current_user_id,
+            recipient_id=recipient_id,
+            content=content,
+            message_type=message_type,
+            attachment=attachment
+        )
+        
+        # Format the response
+        formatted_message = {
+            "id": str(message["_id"]),
+            "sender": str(message["sender_id"]),
+            "recipient": str(message["recipient_id"]),
+            "content": message["content"],
+            "timestamp": message["created_at"].isoformat(),
+            "status": message["status"],
+            "message_type": message.get("message_type", "text"),
+            "attachment": message.get("attachment")
+        }
+        
+        # Emit a socket.io event to notify the recipient about the new message
+        from flask_socketio import emit
+        from app.realtime.events import connected_users
+        
+        room_id = f"{min(current_user_id, recipient_id)}_{max(current_user_id, recipient_id)}"
+        
+        if recipient_id in connected_users:
+            try:
+                # Get sender details
+                sender = User.get_by_id(current_user_id)
+                
+                # Emit the message to the room
+                emit('receive_message', {
+                    'id': str(message['_id']),
+                    'sender': str(message['sender_id']),
+                    'sender_name': sender.get('username', ''),
+                    'sender_avatar': sender.get('profile_picture', ''),
+                    'recipient': str(message['recipient_id']),
+                    'content': message['content'],
+                    'timestamp': message['created_at'].isoformat(),
+                    'status': message['status'],
+                    'message_type': message['message_type'],
+                    'attachment': message['attachment']
+                }, room=f"user_{recipient_id}", namespace='/')
+                
+                print(f"[API] Message notification sent to socket room: user_{recipient_id}")
+            except Exception as e:
+                print(f"[API] Error emitting socket event: {str(e)}")
+        
+        print(f"[API] Message sent successfully with ID: {str(message['_id'])}")
+        return jsonify({
+            "success": True,
+            "message": "Message sent successfully",
+            "data": formatted_message
+        })
+    except Exception as e:
+        print(f"[API] ❌ Error sending message: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": f"Error sending message: {str(e)}"
+        }), 500
+
 def get_direct_conversations(user_id):
     """
     Get all direct message conversations for a user.

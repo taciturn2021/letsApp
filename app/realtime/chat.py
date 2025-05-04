@@ -6,6 +6,10 @@ from app.models.user import User  # Add User model import
 import datetime
 import jwt
 import logging
+import os
+
+# Debug mode for development - set to False in production
+DEBUG_MODE = os.environ.get('FLASK_ENV') == 'development'
 
 def validate_token(token):
     """Validate JWT token and return the decoded token or None if invalid"""
@@ -20,62 +24,115 @@ def validate_token(token):
 def register_handlers(socketio):
     """Register all Socket.IO event handlers for chat"""
     
+    @socketio.on('connect')
+    def handle_connect():
+        """Handle client connection"""
+        print("\n========== WEBSOCKET: Client Connected ==========")
+        
+    @socketio.on('disconnect')
+    def handle_disconnect():
+        """Handle client disconnection"""
+        print("\n========== WEBSOCKET: Client Disconnected ==========")
+    
     @socketio.on('join')
     def handle_join(data):
         """Handle a user joining a chat room."""
+        print("\n========== WEBSOCKET: JOIN REQUEST ==========")
+        print(f"Data received: {data}")
+        
         token = data.get('token')
         decoded_token = validate_token(token)
+        
         if not decoded_token:
+            print("ERROR: Invalid or missing token")
+            
+            # For debugging - allow connections without tokens in dev mode
+            if DEBUG_MODE:
+                print("DEBUG MODE: Allowing connection without token for testing")
+                # Use a fake user ID for testing
+                test_user_id = "test_user_123"
+                room = f"{min(test_user_id, data['recipient'])}_{max(test_user_id, data['recipient'])}"
+                join_room(room)
+                print(f"DEBUG MODE: User {test_user_id} joined room {room}")
+                emit('status', {'message': f'User joined room {room}'}, room=room)
+                return
+            
             emit('error', {'message': 'Invalid or missing token'})
             return
 
         room = f"{min(decoded_token['sub'], data['recipient'])}_{max(decoded_token['sub'], data['recipient'])}"
         join_room(room)
+        print(f"SUCCESS: User {decoded_token['sub']} joined room {room}")
         emit('status', {'message': f'User joined room {room}'}, room=room)
 
     @socketio.on('leave')
     def handle_leave(data):
         """Handle a user leaving a chat room."""
+        print("\n========== WEBSOCKET: LEAVE REQUEST ==========")
+        print(f"Data received: {data}")
+        
         token = data.get('token')
         decoded_token = validate_token(token)
         if not decoded_token:
+            print("ERROR: Invalid or missing token")
             emit('error', {'message': 'Invalid or missing token'})
             return
 
         room = f"{min(decoded_token['sub'], data['recipient'])}_{max(decoded_token['sub'], data['recipient'])}"
         leave_room(room)
+        print(f"SUCCESS: User {decoded_token['sub']} left room {room}")
         emit('status', {'message': f'User left room {room}'}, room=room)
 
     @socketio.on('send_message')
     def handle_send_message(data):
         """Handle sending a message."""
-        logging.info(f"handle_send_message received data: {data}") # Log received data
+        print("\n========== WEBSOCKET: NEW MESSAGE RECEIVED ==========")
+        print(f"Message data: {data}")
+        
         token = data.get('token')
         decoded_token = validate_token(token)
         if not decoded_token:
-            logging.error("handle_send_message: Invalid or missing token") # Log error
+            print("ERROR: Invalid or missing token")
             emit('error', {'message': 'Invalid or missing token'})
             return
 
-        logging.info(f"handle_send_message decoded token: {decoded_token}") # Log decoded token
+        print(f"Token validated for user: {decoded_token['sub']}")
 
         room = f"{min(decoded_token['sub'], data['recipient'])}_{max(decoded_token['sub'], data['recipient'])}"
-        logging.info(f"handle_send_message determined room: {room}") # Log room name
+        print(f"Message room: {room}")
+        
         sender_id = decoded_token['sub']  # Use the user ID from the token
         recipient_id = data['recipient']
         content = data['content']
+        
+        # Check if there's a file attachment
+        file_id = data.get('file_id')
+        file_type = data.get('file_type')
+        
+        # Create attachment object if file info is provided
+        attachment = None
+        message_type = "text"
+        if file_id:
+            print(f"Message contains file attachment: {file_id} (Type: {file_type})")
+            attachment = {
+                "file_id": file_id,
+                "file_type": file_type
+            }
+            message_type = file_type or "file"  # Use file_type as message_type if provided
 
         try:
-            # Create a new message using the Message model
-            logging.info(f"handle_send_message attempting to create message: sender={sender_id}, recipient={recipient_id}, content={content}") # Log before create
+            # Create a new message using the Message model with proper parameters
+            print(f"Creating message in database...")
             message = Message.create(
                 sender_id=sender_id,
                 recipient_id=recipient_id,
-                content=content
+                content=content,
+                message_type=message_type,
+                attachment=attachment
             )
-            logging.info(f"handle_send_message message created successfully: {message}") # Log after create
+            print(f"Message created successfully with ID: {message['_id']}")
         except Exception as e:
-            logging.error(f"handle_send_message error creating message: {e}") # Log creation error
+            print(f"ERROR: Failed to save message to database - {str(e)}")
             emit('error', {'message': 'Failed to save message'})
             return
 
@@ -92,14 +149,16 @@ def register_handlers(socketio):
                 'recipient': str(message['recipient_id']),
                 'content': message['content'],
                 'timestamp': message['created_at'].isoformat(),
-                'status': message['status']
+                'status': message['status'],
+                'message_type': message['message_type'],
+                'attachment': message['attachment']
             }
-            logging.info(f"handle_send_message emitting receive_message to room {room}: {message_payload}") # Log before emit
+            print(f"Broadcasting message to room {room}")
             emit('receive_message', message_payload, room=room)
-            logging.info(f"handle_send_message emitted receive_message successfully") # Log after emit
+            print(f"Message broadcast successful")
         except Exception as e:
-            logging.error(f"handle_send_message error emitting message: {e}") # Log emission error
-            # Optionally notify sender of emission failure, though they get the ack below
+            print(f"ERROR: Failed to broadcast message - {str(e)}")
+            # Optionally notify sender of emission failure
             pass
         
         # Return acknowledgment to the sender
@@ -108,6 +167,7 @@ def register_handlers(socketio):
             'message_id': str(message['_id']),
             'timestamp': message['created_at'].isoformat()
         }
-        logging.info(f"handle_send_message returning acknowledgment: {ack_payload}") # Log acknowledgment
+        print(f"Sending acknowledgment to sender: {ack_payload}")
+        print("========== MESSAGE PROCESSING COMPLETE ==========\n")
         return ack_payload
 

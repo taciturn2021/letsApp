@@ -51,11 +51,15 @@ def register_handlers(socketio):
         return {'success': True}
 
     @socketio.on('get_contacts_status')
-    def handle_get_contacts_status():
+    def handle_get_contacts_status(data=None):
         """Get online status of all contacts"""
         # Get the token from request args or headers
         from flask import request
         token = request.args.get('token') or request.headers.get('Authorization', '').replace('Bearer ', '')
+        
+        # If data is provided and contains token, use it
+        if data and 'token' in data:
+            token = data.get('token')
         
         # Validate token
         from app.realtime.chat import validate_token

@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from bson import ObjectId
 from app.models.message import Message
@@ -32,6 +32,50 @@ def sync_messages():
             # "group_conversations": group_conversations
         }
     })
+
+@bp.route('/<user_id>', methods=['GET'])
+@jwt_required()
+def get_messages_with_user(user_id):
+    """Get messages between current user and specified user with pagination"""
+    current_user_id = get_jwt_identity()
+    page = int(request.args.get('page', 1))
+    limit = min(int(request.args.get('limit', 20)), 50)
+    
+    print(f"\n[API] Getting messages between {current_user_id} and {user_id}")
+    print(f"[API] Page: {page}, Limit: {limit}")
+    
+    # Get messages using the existing model method
+    try:
+        # Add debugging to see what's being queried
+        messages = Message.get_conversation(current_user_id, user_id, limit)
+        print(f"[API] Found {len(messages)} messages")
+        
+        # Format messages for API response
+        formatted_messages = []
+        for msg in messages:
+            formatted_message = {
+                "id": str(msg["_id"]),
+                "sender": str(msg["sender_id"]),
+                "recipient": str(msg["recipient_id"]),
+                "content": msg["content"],
+                "timestamp": msg["created_at"].isoformat(),
+                "status": msg["status"],
+                "message_type": msg.get("message_type", "text"),
+                "attachment": msg.get("attachment")
+            }
+            formatted_messages.append(formatted_message)
+        
+        print(f"[API] Returning {len(formatted_messages)} formatted messages")
+        return jsonify({
+            "success": True,
+            "data": formatted_messages
+        })
+    except Exception as e:
+        print(f"[API] ❌ Error retrieving messages: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": f"Error retrieving messages: {str(e)}"
+        }), 500
 
 def get_direct_conversations(user_id):
     """
@@ -193,4 +237,4 @@ def get_group_conversations(user_id):
         reverse=True
     )
     
-    return group_conversations 
+    return group_conversations

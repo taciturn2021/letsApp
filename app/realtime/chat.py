@@ -107,11 +107,9 @@ def register_handlers(socketio):
         room = f"{min(decoded_token['sub'], data['recipient'])}_{max(decoded_token['sub'], data['recipient'])}"
         print(f"Message room: {room}")
         
-        sender_id = decoded_token['sub']  # Use the user ID from the token
+        sender_id = decoded_token['sub']
         recipient_id = data['recipient']
         content = data.get('content', '')
-        
-        # Get message_type (default to "text")
         message_type = data.get('message_type', 'text')
         
         # Handle different ways the attachment might be provided
@@ -122,28 +120,39 @@ def register_handlers(socketio):
             attachment_data = data.get('attachment')
             print(f"Message contains attachment object: {attachment_data}")
             
-            # If attachment has file_id, use it directly - but only if it's not undefined
             if attachment_data.get('file_id') and attachment_data.get('file_id') != 'undefined':
-                attachment = attachment_data
-                print(f"Using direct attachment data with file_id: {attachment_data.get('file_id')}")
-            # If attachment only has filename but no file_id, we need to find the file
+                # Get complete file metadata based on file type
+                file_info = None
+                file_type = attachment_data.get('file_type', 'document')
+                
+                if file_type in ('image', 'video', 'audio'):
+                    file_info = Media.get_by_id(attachment_data.get('file_id'))
+                else:
+                    file_info = File.get_by_id(attachment_data.get('file_id'))
+                
+                if file_info:
+                    attachment = {
+                        "file_id": str(file_info['_id']),
+                        "file_type": file_type,
+                        "filename": file_info.get('original_filename', ''),
+                        "mime_type": file_info.get('mime_type', ''),
+                        "size": file_info.get('file_size', 0)
+                    }
+                    message_type = file_type
+            
             elif attachment_data.get('filename'):
                 filename = attachment_data.get('filename')
                 attachment_type = attachment_data.get('type', 'document')
                 
                 print(f"Looking for recently uploaded file matching: {filename}")
                 
-                # Find the most recent file uploaded by this user with the matching filename
                 file_info = None
                 if attachment_type in ('image', 'video', 'audio'):
                     file_info = Media.get_most_recent_by_user_and_filename(sender_id, filename)
-                    print(f"Media search result: {file_info}")
                 else:
                     file_info = File.get_most_recent_by_user_and_filename(sender_id, filename)
-                    print(f"File search result: {file_info}")
                 
                 if file_info:
-                    print(f"Found matching file with ID: {file_info['_id']}")
                     attachment = {
                         "file_id": str(file_info['_id']),
                         "file_type": attachment_type,
@@ -151,11 +160,7 @@ def register_handlers(socketio):
                         "mime_type": file_info.get('mime_type', ''),
                         "size": file_info.get('file_size', 0)
                     }
-                    # Use the file's type for message_type if it was provided
-                    if attachment_type:
-                        message_type = attachment_type
-                else:
-                    print(f"WARNING: Could not find recently uploaded file matching '{filename}'")
+                    message_type = attachment_type
         
         # Case 2: file_id and file_type directly in the message
         elif data.get('file_id') and data.get('file_id') != 'undefined':

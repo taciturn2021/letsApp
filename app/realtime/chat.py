@@ -1,19 +1,19 @@
 from flask_socketio import emit, join_room, leave_room
 from flask_jwt_extended import decode_token
 from flask import current_app
-from app.models.message import Message  # Import the Message model
-from app.models.user import User  # Add User model import
-from app.models.file import File  # Add File model import
-from app.models.media import Media  # Add Media model import
+from app.models.message import Message  
+from app.models.user import User  
+from app.models.file import File  
+from app.models.media import Media  
 import datetime
 import jwt
 import logging
 import os
 
-# Debug mode for development - set to False in production
+
 DEBUG_MODE = os.environ.get('FLASK_ENV') == 'development'
 
-# Set up logging
+
 logging.basicConfig(level=logging.DEBUG if DEBUG_MODE else logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ def validate_token(token):
     try:
         decoded_token = decode_token(token)
         return decoded_token
-    except Exception:  # Use a generic exception instead of the specific JWTDecodeError
+    except Exception:  
         return None
 
 def register_handlers(socketio):
@@ -52,10 +52,10 @@ def register_handlers(socketio):
         if not decoded_token:
             print("ERROR: Invalid or missing token")
             
-            # For debugging - allow connections without tokens in dev mode
+           
             if DEBUG_MODE:
                 print("DEBUG MODE: Allowing connection without token for testing")
-                # Use a fake user ID for testing
+                
                 test_user_id = "test_user_123"
                 room = f"{min(test_user_id, data['recipient'])}_{max(test_user_id, data['recipient'])}"
                 join_room(room)
@@ -93,8 +93,13 @@ def register_handlers(socketio):
     def handle_send_message(data):
         """Handle sending a message."""
         print("\n========== WEBSOCKET: NEW MESSAGE RECEIVED ==========")
-        print(f"Message data: {data}")
+        print(f"Raw message data from client: {data}") 
         
+        client_attachment_payload = data.get('attachment')
+        if client_attachment_payload:
+            print(f"Client attachment payload received: {client_attachment_payload}")
+            print(f"Keys in client_attachment_payload: {list(client_attachment_payload.keys()) if isinstance(client_attachment_payload, dict) else 'Not a dict'}")
+
         token = data.get('token')
         decoded_token = validate_token(token)
         if not decoded_token:
@@ -112,120 +117,76 @@ def register_handlers(socketio):
         content = data.get('content', '')
         message_type = data.get('message_type', 'text')
         
-        # Handle different ways the attachment might be provided
-        attachment = None
+        attachment_to_save = None # Renamed from 'attachment' to avoid confusion
         
-        # Case 1: Direct attachment object in the message
-        if data.get('attachment'):
-            attachment_data = data.get('attachment')
-            print(f"Message contains attachment object: {attachment_data}")
+        if client_attachment_payload and isinstance(client_attachment_payload, dict):
+           
+            media_doc_id = client_attachment_payload.get('fileId') 
             
-            if attachment_data.get('file_id') and attachment_data.get('file_id') != 'undefined':
-                # Get complete file metadata based on file type
-                file_info = None
-                file_type = attachment_data.get('file_type', 'document')
-                
-                if file_type in ('image', 'video', 'audio'):
-                    file_info = Media.get_by_id(attachment_data.get('file_id'))
+        
+            if not media_doc_id:
+                media_doc_id = client_attachment_payload.get('file_id')
+
+            original_filename = client_attachment_payload.get('filename')
+            
+            resolved_file_type = client_attachment_payload.get('type') or client_attachment_payload.get('file_type') or 'document' 
+
+            print(f"Processing client attachment: media_doc_id='{media_doc_id}', filename='{original_filename}', type='{resolved_file_type}'")
+
+            file_info = None
+            if media_doc_id and media_doc_id not in ['undefined', 'null', None, '']:
+                print(f"Attempting to fetch Media/File object using ID: {media_doc_id} (type hint: {resolved_file_type})")
+                if resolved_file_type in ('image', 'video', 'audio'):
+                    file_info = Media.get_by_id(media_doc_id)
                 else:
-                    file_info = File.get_by_id(attachment_data.get('file_id'))
+                    file_info = File.get_by_id(media_doc_id)
                 
                 if file_info:
-                    attachment = {
-                        "file_id": str(file_info['_id']),
-                        "file_type": file_type,
-                        "filename": file_info.get('original_filename', ''),
-                        "mime_type": file_info.get('mime_type', ''),
-                        "size": file_info.get('file_size', 0)
-                    }
-                    message_type = file_type
-            
-            elif attachment_data.get('filename'):
-                filename = attachment_data.get('filename')
-                attachment_type = attachment_data.get('type', 'document')
-                
-                print(f"Looking for recently uploaded file matching: {filename}")
-                
-                file_info = None
-                if attachment_type in ('image', 'video', 'audio'):
-                    file_info = Media.get_most_recent_by_user_and_filename(sender_id, filename)
+                    print(f"Successfully fetched by ID: {file_info['_id']}")
                 else:
-                    file_info = File.get_most_recent_by_user_and_filename(sender_id, filename)
+                    # If ID lookup fails, maybe it was a filename passed as fileId by mistake, or bad ID
+                    print(f"WARN: Could not find Media/File for ID: {media_doc_id}. Will try filename lookup if available.")
+            
+            # If file_info not found by ID, AND we have an original_filename, try by filename
+            if not file_info and original_filename:
+                print(f"Attempting to fetch by filename: '{original_filename}' for user '{sender_id}' (type hint: {resolved_file_type})")
+                if resolved_file_type in ('image', 'video', 'audio'):
+                    file_info = Media.get_most_recent_by_user_and_filename(sender_id, original_filename)
+                else:
+                    file_info = File.get_most_recent_by_user_and_filename(sender_id, original_filename)
                 
                 if file_info:
-                    attachment = {
-                        "file_id": str(file_info['_id']),
-                        "file_type": attachment_type,
-                        "filename": file_info.get('original_filename', filename),
-                        "mime_type": file_info.get('mime_type', ''),
-                        "size": file_info.get('file_size', 0)
-                    }
-                    message_type = attachment_type
-        
-        # Case 2: file_id and file_type directly in the message
-        elif data.get('file_id') and data.get('file_id') != 'undefined':
-            file_id = data.get('file_id')
-            file_type = data.get('file_type', 'document')
-            print(f"Message contains direct file reference: {file_id}")
-            
-            attachment = {
-                "file_id": file_id,
-                "file_type": file_type
-            }
-            message_type = file_type
-        
-        # Case 3: attachments array
-        elif data.get('attachments') and len(data.get('attachments')) > 0:
-            first_attachment = data.get('attachments')[0]
-            print(f"Message contains attachments array: {data.get('attachments')}")
-            
-            if first_attachment.get('id') and first_attachment.get('id') != 'undefined' and not first_attachment.get('id').startswith('uploading-'):
-                attachment = {
-                    "file_id": first_attachment.get('id'),
-                    "file_type": first_attachment.get('type', 'document'),
-                    "filename": first_attachment.get('filename', '')
+                    print(f"Successfully fetched by filename: {file_info['_id']}")
+                else:
+                    print(f"WARN: Could not find Media/File by filename: {original_filename}")
+
+            if file_info:
+                # Determine the most reliable message_type from the retrieved file_info
+                message_type = file_info.get('media_type') or file_info.get('file_type') or resolved_file_type
+                attachment_to_save = {
+                    "file_id": str(file_info['_id']),
+                    "file_type": message_type,
+                    "filename": file_info.get('original_filename', original_filename or ''),
+                    "mime_type": file_info.get('mime_type', ''),
+                    "size": file_info.get('file_size', 0)
                 }
-                message_type = first_attachment.get('type', 'document')
-            elif first_attachment.get('filename'):
-                # Handle temporary ID case by finding the file based on filename
-                filename = first_attachment.get('filename')
-                attachment_type = first_attachment.get('type', 'document')
-                
-                print(f"Looking for recently uploaded file with name: {filename}")
-                
-                # Try to find recently uploaded file with matching name
-                file_info = None
-                if attachment_type in ('image', 'video', 'audio'):
-                    file_info = Media.get_most_recent_by_user_and_filename(sender_id, filename)
-                    print(f"Media search result: {file_info}")
-                else:
-                    file_info = File.get_most_recent_by_user_and_filename(sender_id, filename)
-                    print(f"File search result: {file_info}")
-                
-                if file_info:
-                    attachment = {
-                        "file_id": str(file_info['_id']),
-                        "file_type": attachment_type,
-                        "filename": file_info.get('original_filename', filename),
-                        "mime_type": file_info.get('mime_type', ''),
-                        "size": file_info.get('file_size', 0)
-                    }
-                    message_type = attachment_type
-                else:
-                    print(f"WARNING: Could not find recently uploaded file matching '{filename}'")
+            else:
+                print(f"ERROR: Attachment processing failed. No file_info found for: {client_attachment_payload}")
+                # Keep original message_type if attachment fails, or reset if it was file-specific
+                if message_type not in ['text'] and not content: # If it was e.g. 'video' but no content and attach failed
+                    message_type = 'text' # Default to text if attachment fails and no content
         
-        print(f"Final attachment: {attachment}")
-        print(f"Message type: {message_type}")
+        print(f"Final attachment to save in DB: {attachment_to_save}")
+        print(f"Final message_type for DB: {message_type}")
 
         try:
-            # Create a new message using the Message model with proper parameters
             print(f"Creating message in database...")
             message = Message.create(
                 sender_id=sender_id,
                 recipient_id=recipient_id,
                 content=content,
                 message_type=message_type,
-                attachment=attachment
+                attachment=attachment_to_save # Use the processed attachment_to_save
             )
             print(f"Message created successfully with ID: {message['_id']}")
         except Exception as e:

@@ -237,7 +237,7 @@ def register_handlers(socketio):
             # Fetch sender details from User model
             sender = User.get_by_id(sender_id)
             
-            # Emit the message to the room
+            # Convert ObjectId and datetime objects to strings
             message_payload = {
                 'id': str(message['_id']),
                 'sender': str(message['sender_id']),

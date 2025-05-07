@@ -40,10 +40,10 @@ def register_handlers(socketio):
             contacts = db.contacts.find({"contact_id": user_id, "status": "accepted"})
             
             for contact in contacts:
-                contact_id = str(contact['user_id'])
+                contact_id = str(contact['user_id'])  # Convert ObjectId to string
                 if contact_id in connected_users:
                     emit('presence_update', {
-                        'user_id': user_id,
+                        'user_id': str(user_id),  # Convert ObjectId to string
                         'username': user['username'],
                         'status': Presence.STATUS_ONLINE
                     }, room=f"user_{contact_id}")
@@ -78,10 +78,10 @@ def register_handlers(socketio):
             contacts = db.contacts.find({"contact_id": user_id, "status": "accepted"})
             
             for contact in contacts:
-                contact_id = str(contact['user_id'])
+                contact_id = str(contact['user_id'])  # Convert ObjectId to string
                 if contact_id in connected_users:
                     emit('presence_update', {
-                        'user_id': user_id,
+                        'user_id': str(user_id),  # Convert ObjectId to string
                         'username': user['username'],
                         'status': Presence.STATUS_OFFLINE
                     }, room=f"user_{contact_id}")

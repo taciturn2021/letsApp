@@ -111,12 +111,17 @@ class Presence:
                     if time_diff.total_seconds() > 120:  # 2 minutes
                         status = Presence.STATUS_OFFLINE
             
+            # Convert datetime objects to ISO format strings
+            last_active = presence_data.get("last_active")
+            if last_active:
+                last_active = last_active.isoformat()
+            
             result.append({
                 "user_id": user["_id"],
                 "username": user["username"],
                 "profile_picture": user.get("profile_picture"),
                 "status": status,
-                "last_active": presence_data.get("last_active")
+                "last_active": last_active
             })
             
         return result

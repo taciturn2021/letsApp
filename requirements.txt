@@ -14,5 +14,6 @@ Flask-Limiter
 Pillow
 flask-socketio 
 eventlet
-python-magic
-python-magic-bin
+python-magic-bin # for windows
+# python-magic # for linux
+# brew install libmagic # for macOS

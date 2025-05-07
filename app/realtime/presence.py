@@ -43,7 +43,7 @@ def register_handlers(socketio):
             contact_id = str(contact['user_id'])
             if contact_id in connected_users:
                 emit('presence_update', {
-                    'user_id': current_user,
+                    'user_id': str(current_user),
                     'username': user['username'],
                     'status': status
                 }, room=f"user_{contact_id}")
@@ -71,5 +71,9 @@ def register_handlers(socketio):
         
         # Get contacts with their status
         contacts_status = Presence.get_contacts_status(current_user)
+        
+        # Convert ObjectId to string in the response
+        for contact in contacts_status:
+            contact['user_id'] = str(contact['user_id'])
         
         return {'contacts': contacts_status}

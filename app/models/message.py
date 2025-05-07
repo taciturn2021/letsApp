@@ -63,10 +63,10 @@ class Message:
         return mongo.db.messages.find_one({"_id": ObjectId(message_id), "is_deleted": False})
     
     @staticmethod
-    def get_conversation(user1_id, user2_id, limit=20, before_timestamp=None):
+    def get_conversation(user1_id, user2_id, page=1, limit=20, before_timestamp=None):
         """Get messages between two users with pagination"""
         print(f"\n[MESSAGE GET] Retrieving conversation between {user1_id} and {user2_id}")
-        print(f"[MESSAGE GET] Limit: {limit}, Before timestamp: {before_timestamp}")
+        print(f"[MESSAGE GET] Page: {page}, Limit: {limit}, Before timestamp: {before_timestamp}")
         
         try:
             query = {
@@ -79,37 +79,46 @@ class Message:
             
             print(f"[MESSAGE GET] Query: {query}")
             
-            # Add timestamp filter if provided
-            if before_timestamp:
-                query["created_at"] = {"$lt": before_timestamp}
+            # Add timestamp filter if provided (for cursor-based pagination, not strictly page-based here)
+            # If using page-based, this 'before_timestamp' might be less relevant unless it's an anchor for the first page.
+            # For simplicity with page/limit, we'll rely on skip and limit first.
+            # if before_timestamp:
+            #     query["created_at"] = {"$lt": before_timestamp}
+
+            # Calculate skip value for pagination
+            skip_count = (page - 1) * limit
             
-            # Get messages
-            messages = list(mongo.db.messages
-                            .find(query)
-                            .sort("created_at", -1)
-                            .limit(limit))
+            # Get messages, sorted newest first
+            messages_cursor = mongo.db.messages \
+                            .find(query) \
+                            .sort("created_at", -1) 
             
-            print(f"[MESSAGE GET] Found {len(messages)} messages")
+            # Get total count for this conversation to determine hasMore later
+            total_messages_in_conversation = mongo.db.messages.count_documents(query)
+
+            # Apply skip and limit
+            paginated_messages = list(messages_cursor.skip(skip_count).limit(limit))
             
+            print(f"[MESSAGE GET] Found {len(paginated_messages)} messages after skip/limit. Total in convo: {total_messages_in_conversation}")
+            
+            # Determine if there are more messages
+            # has_more = len(paginated_messages) == limit and (skip_count + len(paginated_messages)) < total_messages_in_conversation
+            # A simpler way: if the number of messages on this page plus what we skipped is less than total, there's more.
+            has_more = (skip_count + len(paginated_messages)) < total_messages_in_conversation
+
             # Debug: Print the first few messages if any
-            if messages:
-                print(f"[MESSAGE GET] First message: {messages[0]}")
-            else:
-                # Check if collection exists and has any documents
-                all_messages = list(mongo.db.messages.find().limit(1))
-                print(f"[MESSAGE GET] Messages collection exists: {len(all_messages) > 0}")
-                print(f"[MESSAGE GET] Total messages in database: {mongo.db.messages.count_documents({})}")
-                
-                # Check if room exists
-                room_id = f"{min(user1_id, user2_id)}_{max(user1_id, user2_id)}"
-                room_messages = list(mongo.db.messages.find({"room_id": room_id}).limit(1))
-                print(f"[MESSAGE GET] Messages in room {room_id}: {len(room_messages)}")
+            if paginated_messages:
+                print(f"[MESSAGE GET] First message of page: {paginated_messages[0]}")
             
-            # Return in reverse order (oldest first)
-            return list(reversed(messages))
+            # Return messages for the current page (oldest first for this page) and hasMore flag
+            return {
+                "messages": list(reversed(paginated_messages)), # Reverse to send oldest first for the current page
+                "hasMore": has_more
+            }
         except Exception as e:
             print(f"[MESSAGE GET] ❌ ERROR: {str(e)}")
-            raise
+            # It's better to return a consistent structure or raise an error that the route can handle
+            return {"messages": [], "hasMore": False, "error": str(e)} 
     
     @staticmethod
     def update_status(message_id, status):

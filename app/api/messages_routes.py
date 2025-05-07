@@ -6,6 +6,7 @@ from app.models.user import User
 from app.models.group import Group
 from app.models.group_message import GroupMessage
 from app import mongo
+import datetime
 
 bp = Blueprint('messages', __name__)
 
@@ -38,43 +39,72 @@ def sync_messages():
 def get_messages_with_user(user_id):
     """Get messages between current user and specified user with pagination"""
     current_user_id = get_jwt_identity()
-    page = int(request.args.get('page', 1))
-    limit = min(int(request.args.get('limit', 20)), 50)
+    # Use the page/limit provided by the client, defaulting to 1 and 20 if not present
+    page = request.args.get('page', 1, type=int) 
+    limit = request.args.get('limit', 20, type=int)
     
-    print(f"\n[API] Getting messages between {current_user_id} and {user_id}")
-    print(f"[API] Page: {page}, Limit: {limit}")
+    print(f"\n[API ROUTE] Getting messages between {current_user_id} and {user_id}")
+    print(f"[API ROUTE] Page: {page}, Limit: {limit}")
     
-    # Get messages using the existing model method
     try:
-        # Add debugging to see what's being queried
-        messages = Message.get_conversation(current_user_id, user_id, limit)
-        print(f"[API] Found {len(messages)} messages")
+        # Call the updated model method
+        conversation_data = Message.get_conversation(current_user_id, user_id, page=page, limit=limit)
         
-        # Format messages for API response
+        # Check for errors from the model method if it returns dict with 'error'
+        if 'error' in conversation_data:
+            print(f"[API ROUTE] ❌ Error from Message.get_conversation: {conversation_data['error']}")
+            return jsonify({
+                "success": False,
+                "message": f"Error retrieving messages: {conversation_data['error']}"
+            }), 500
+
+        messages_page = conversation_data.get("messages", [])
+        has_more = conversation_data.get("hasMore", False)
+        
+        print(f"[API ROUTE] Model returned {len(messages_page)} messages. HasMore: {has_more}")
+        
+        # Format messages for API response (sender_name, sender_avatar should be added here ideally)
         formatted_messages = []
-        for msg in messages:
+        for msg_dict in messages_page: # msg_dict is already a dictionary from the model
+            # Fetch sender details to include sender_name and sender_avatar
+            # This could be optimized by fetching sender details in bulk if performance is an issue
+            sender_info = User.get_by_id(msg_dict["sender_id"])
+            sender_name = sender_info.get("username") if sender_info else "User"
+            sender_avatar = sender_info.get("profile_picture") if sender_info else None
+
+            # Get the attachment object/null from the DB record
+            attachment_obj = msg_dict.get("attachment")
+
             formatted_message = {
-                "id": str(msg["_id"]),
-                "sender": str(msg["sender_id"]),
-                "recipient": str(msg["recipient_id"]),
-                "content": msg["content"],
-                "timestamp": msg["created_at"].isoformat(),
-                "status": msg["status"],
-                "message_type": msg.get("message_type", "text"),
-                "attachment": msg.get("attachment")
+                "id": str(msg_dict["_id"]),
+                "sender": str(msg_dict["sender_id"]),
+                "recipient": str(msg_dict["recipient_id"]),
+                "content": msg_dict["content"],
+                "timestamp": msg_dict["created_at"].isoformat() if isinstance(msg_dict["created_at"], datetime.datetime) else msg_dict["created_at"],
+                "status": msg_dict["status"],
+                "message_type": msg_dict.get("message_type", "text"),
+                # Format as an array for the frontend
+                "attachments": [attachment_obj] if attachment_obj else [], 
+                "sender_name": sender_name,
+                "sender_avatar": sender_avatar
             }
             formatted_messages.append(formatted_message)
         
-        print(f"[API] Returning {len(formatted_messages)} formatted messages")
+        print(f"[API ROUTE] Returning {len(formatted_messages)} formatted messages for page {page}")
         return jsonify({
             "success": True,
-            "data": formatted_messages
+            "data": {
+                "messages": formatted_messages,
+                "hasMore": has_more
+            }
         })
     except Exception as e:
-        print(f"[API] ❌ Error retrieving messages: {str(e)}")
+        print(f"[API ROUTE] ❌ Unexpected error in route: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             "success": False,
-            "message": f"Error retrieving messages: {str(e)}"
+            "message": f"Unexpected error retrieving messages: {str(e)}"
         }), 500
 
 @bp.route('/<recipient_id>', methods=['POST'])
@@ -139,6 +169,9 @@ def send_message(recipient_id):
                 # Get sender details
                 sender = User.get_by_id(current_user_id)
                 
+                # Get the attachment object/null from the created message
+                attachment_obj = message.get('attachment')
+
                 # Emit the message to the room
                 emit('receive_message', {
                     'id': str(message['_id']),
@@ -150,7 +183,8 @@ def send_message(recipient_id):
                     'timestamp': message['created_at'].isoformat(),
                     'status': message['status'],
                     'message_type': message['message_type'],
-                    'attachment': message['attachment']
+                    # Format as an array for the frontend
+                    'attachments': [attachment_obj] if attachment_obj else [] 
                 }, room=f"user_{recipient_id}", namespace='/')
                 
                 print(f"[API] Message notification sent to socket room: user_{recipient_id}")
@@ -311,7 +345,6 @@ def get_group_conversations(user_id):
         last_message_time = group.get("updated_at")
         if formatted_messages:
             # Parse the ISO timestamp back to a datetime object for comparison
-            import datetime
             for msg in formatted_messages:
                 msg_time = datetime.datetime.fromisoformat(msg["timestamp"].replace('Z', '+00:00'))
                 if not last_message_time or msg_time > last_message_time:

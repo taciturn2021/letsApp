@@ -122,19 +122,18 @@ def generate_signed_url(file_id, expires_in=3600):
 
 def save_profile_picture(file, uploader_id, upload_folder):
     """
-    Save and process a profile picture
+    Save and process a profile picture using GridFS
     
     Parameters:
     - file: FileStorage object from the request
     - uploader_id: ID of the user uploading the file
-    - upload_folder: Path to the upload folder
+    - upload_folder: Path to the upload folder (kept for compatibility but not used)
     
     Returns:
     - Success/failure status and message
     - Media document ID if successful
     """
-    print(f"[DEBUG] Starting file upload process...")
-    print(f"[DEBUG] Upload folder: {upload_folder}")
+    print(f"[DEBUG] Starting profile picture upload process using GridFS...")
     
     # Validate file
     if not file:
@@ -161,67 +160,89 @@ def save_profile_picture(file, uploader_id, upload_folder):
         
         # Secure the filename and generate a unique name
         original_filename = secure_filename(file.filename)
-        filename = generate_unique_filename(original_filename)
-        print(f"[DEBUG] Generated unique filename: {filename}")
+        unique_id = uuid.uuid4().hex
         
-        # Ensure upload folder exists
-        os.makedirs(upload_folder, exist_ok=True)
+        # Read file data
+        file_data = file.read()
+        file.seek(0)  # Reset file pointer for potential thumbnail generation
         
-        # Save the file
-        file_path = os.path.join(upload_folder, filename)
-        print(f"[DEBUG] Saving file to: {file_path}")
-        file.save(file_path)
+        # Get mime type
+        mime_type = file.content_type or get_mime_type(file_data)
         
-        # Generate thumbnail
+        # Create thumbnail
+        thumbnail_id = None
+        width = None
+        height = None
+        
         try:
-            with Image.open(file_path) as img:
-                print("[DEBUG] Successfully opened image for thumbnail generation")
-                # Get original dimensions
-                width, height = img.size
-                print(f"[DEBUG] Image dimensions: {width}x{height}")
-                
-                # Create thumbnail
-                thumbnail_filename = f"thumb_{filename}"
-                thumbnail_path = os.path.join(upload_folder, thumbnail_filename)
-                img.thumbnail(THUMBNAIL_SIZE)
-                img.save(thumbnail_path)
-                print(f"[DEBUG] Thumbnail saved: {thumbnail_filename}")
-                
-                # Save media metadata to database
-                print("[DEBUG] Saving media metadata to database...")
-                media_data = Media.save_media_metadata(
-                    filename=filename,
-                    original_filename=original_filename,
-                    file_size=file_size,
-                    media_type=Media.TYPE_IMAGE,
-                    mime_type=file.content_type,
-                    uploader_id=uploader_id,
-                    thumbnail=thumbnail_filename,
-                    width=width,
-                    height=height
-                )
-                
-                print("[DEBUG] File upload completed successfully")
-                return {
-                    "success": True,
-                    "message": "Profile picture uploaded successfully",
-                    "media_id": str(media_data["_id"])
+            # Open the image using PIL
+            img = Image.open(BytesIO(file_data))
+            # Get image dimensions
+            width, height = img.size
+            
+            # Create thumbnail
+            img.thumbnail(THUMBNAIL_SIZE)
+            thumbnail_buffer = BytesIO()
+            img.save(thumbnail_buffer, format=img.format or 'JPEG')
+            thumbnail_data = thumbnail_buffer.getvalue()
+            
+            # Store thumbnail in GridFS
+            thumbnail_id = fs.put(
+                thumbnail_data,
+                filename=f"thumb_{unique_id}",
+                content_type=mime_type,
+                metadata={
+                    "uploader_id": uploader_id,
+                    "original_filename": f"thumb_{original_filename}",
+                    "is_thumbnail": True,
+                    "for_file": unique_id
                 }
+            )
+            print(f"[DEBUG] Thumbnail saved to GridFS with ID: {thumbnail_id}")
         except Exception as e:
-            print(f"[DEBUG] Error processing image: {str(e)}")
-            # Clean up files if there was an error
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                print(f"[DEBUG] Cleaned up file: {file_path}")
-            
-            thumbnail_path = os.path.join(upload_folder, f"thumb_{filename}")
-            if os.path.exists(thumbnail_path):
-                os.remove(thumbnail_path)
-                print(f"[DEBUG] Cleaned up thumbnail: {thumbnail_path}")
-            
-            return {"success": False, "message": f"Error processing image: {str(e)}"}
+            print(f"[DEBUG] Error creating thumbnail: {str(e)}")
+            # Continue without thumbnail if there's an error
+        
+        # Store the file in GridFS
+        gridfs_id = fs.put(
+            file_data,
+            filename=unique_id,
+            content_type=mime_type,
+            metadata={
+                "uploader_id": uploader_id,
+                "original_filename": original_filename,
+                "file_size": file_size,
+                "thumbnail_id": thumbnail_id,
+                "width": width,
+                "height": height,
+                "media_type": "profile_picture"
+            }
+        )
+        
+        print(f"[DEBUG] Profile picture saved to GridFS with ID: {gridfs_id}")
+        
+        # Save media metadata to database
+        print("[DEBUG] Saving media metadata to database...")
+        media_data = Media.save_media_metadata(
+            filename=str(gridfs_id),  # Store GridFS ID as filename
+            original_filename=original_filename,
+            file_size=file_size,
+            media_type=Media.TYPE_IMAGE,
+            mime_type=mime_type,
+            uploader_id=uploader_id,
+            thumbnail=str(thumbnail_id) if thumbnail_id else None,
+            width=width,
+            height=height
+        )
+        
+        print("[DEBUG] Profile picture upload completed successfully")
+        return {
+            "success": True,
+            "message": "Profile picture uploaded successfully",
+            "media_id": str(media_data["_id"])
+        }
     except Exception as e:
-        print(f"[DEBUG] Unexpected error during file upload: {str(e)}")
+        print(f"[DEBUG] Unexpected error during profile picture upload: {str(e)}")
         return {"success": False, "message": f"Error uploading file: {str(e)}"}
 
 def save_file_to_gridfs(file, uploader_id, file_type=None, message_id=None, group_message_id=None):

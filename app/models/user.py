@@ -3,6 +3,7 @@ import bcrypt
 import secrets
 from bson import ObjectId
 from app import mongo
+from app.models.media import Media
 
 class User:
     """User model for authentication and profile management."""
@@ -268,28 +269,52 @@ class User:
     
     @staticmethod
     def update_profile_picture(user_id, media_id):
-        """Update a user's profile picture"""
-        result = mongo.db.users.update_one(
-            {"_id": ObjectId(user_id)},
-            {
-                "$set": {
-                    "profile_picture": str(media_id),
-                    "updated_at": datetime.datetime.utcnow()
+        """Update user's profile picture"""
+        try:
+            # Verify the media exists
+            media = Media.get_by_id(media_id)
+            if not media:
+                return {"success": False, "message": "Media not found"}
+            
+            # Update the user's profile
+            result = mongo.db.users.update_one(
+                {"_id": ObjectId(user_id)},
+                {
+                    "$set": {
+                        "profile_picture": media_id,
+                        "updated_at": datetime.datetime.utcnow()
+                    }
                 }
-            }
-        )
-        return {"success": result.modified_count > 0, "message": "Profile picture updated successfully"}
+            )
+            
+            return {"success": result.modified_count > 0, "message": "Profile picture updated successfully"}
+        except Exception as e:
+            return {"success": False, "message": f"Error updating profile picture: {str(e)}"}
     
     @staticmethod
     def remove_profile_picture(user_id):
-        """Remove a user's profile picture"""
-        result = mongo.db.users.update_one(
-            {"_id": ObjectId(user_id)},
-            {
-                "$set": {
-                    "profile_picture": None,
-                    "updated_at": datetime.datetime.utcnow()
+        """Remove user's profile picture reference"""
+        try:
+            # First get the current profile picture ID
+            user = User.get_by_id(user_id)
+            if not user or not user.get("profile_picture"):
+                return {"success": False, "message": "No profile picture to remove"}
+            
+            # Update the user document to remove the profile picture reference
+            result = mongo.db.users.update_one(
+                {"_id": ObjectId(user_id)},
+                {
+                    "$unset": {
+                        "profile_picture": ""
+                    },
+                    "$set": {
+                        "updated_at": datetime.datetime.utcnow()
+                    }
                 }
-            }
-        )
-        return {"success": result.modified_count > 0, "message": "Profile picture removed successfully"}
+            )
+            
+            # Note: We're not deleting the actual media from GridFS 
+            # as it might be referenced elsewhere or needed for history
+            return {"success": result.modified_count > 0, "message": "Profile picture removed successfully"}
+        except Exception as e:
+            return {"success": False, "message": f"Error removing profile picture: {str(e)}"}

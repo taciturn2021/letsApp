@@ -123,12 +123,12 @@ def register_handlers(socketio):
             user_id_str = str(user["_id"])
             presence_data = presence_by_id.get(user_id_str, {})
             
-            # Check if online status is stale (more than 2 minutes old)
+            # Check if online status is stale (more than 10 minutes old)
             status = presence_data.get("status", Presence.STATUS_OFFLINE)
             if status == Presence.STATUS_ONLINE:
                 if "last_updated" in presence_data:
                     time_diff = datetime.datetime.utcnow() - presence_data["last_updated"]
-                    if time_diff.total_seconds() > 120:  # 2 minutes
+                    if time_diff.total_seconds() > 600:  # 10 minutes instead of 2
                         status = Presence.STATUS_OFFLINE
             
             # Convert datetime objects to ISO format strings

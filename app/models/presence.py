@@ -58,12 +58,12 @@ class Presence:
         if not presence:
             return Presence.STATUS_OFFLINE
             
-        # Check if online status is stale (more than 2 minutes old)
+        # Check if online status is stale (more than 10 minutes old)
         if presence["status"] == Presence.STATUS_ONLINE:
             time_diff = datetime.datetime.utcnow() - presence["last_updated"]
-            if time_diff.total_seconds() > 120:  # 2 minutes
-                # Update to offline if stale
-                Presence.update_status(user_id, Presence.STATUS_OFFLINE)
+            if time_diff.total_seconds() > 600:  # 10 minutes instead of 2
+                # Return offline status but don't update the database
+                # This way, a reconnecting socket can still claim the status
                 return Presence.STATUS_OFFLINE
         
         return presence["status"]
@@ -107,7 +107,7 @@ class Presence:
             if status == Presence.STATUS_ONLINE:
                 if "last_updated" in presence_data:
                     time_diff = datetime.datetime.utcnow() - presence_data["last_updated"]
-                    if time_diff.total_seconds() > 120:  # 2 minutes
+                    if time_diff.total_seconds() > 600:  # 10 minutes instead of 2
                         status = Presence.STATUS_OFFLINE
             
             # Convert datetime objects to ISO format strings

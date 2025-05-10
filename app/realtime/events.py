@@ -4,12 +4,34 @@ from flask_jwt_extended import decode_token
 from app.models.presence import Presence
 from app.models.user import User
 from app.utils.db import get_db
+import threading
+import time
 
 # Store user_id to session_id mapping
 connected_users = {}
 
 def register_handlers(socketio):
     """Register all Socket.IO event handlers for connection events"""
+    
+    # Start a background thread for heartbeat
+    def heartbeat_thread():
+        """Periodically refresh presence status for all connected users"""
+        while True:
+            time.sleep(60)  # Run every minute
+            try:
+                # For each connected user, refresh their presence status
+                for user_id in list(connected_users.keys()):
+                    try:
+                        Presence.update_status(user_id, Presence.STATUS_ONLINE)
+                        print(f"Refreshed online status for user {user_id}")
+                    except Exception as e:
+                        print(f"Error refreshing presence for {user_id}: {str(e)}")
+            except Exception as e:
+                print(f"Error in heartbeat thread: {str(e)}")
+    
+    # Start the heartbeat thread
+    thread = threading.Thread(target=heartbeat_thread, daemon=True)
+    thread.start()
     
     @socketio.on('connect')
     def handle_connect():
@@ -97,3 +119,22 @@ def register_handlers(socketio):
                         'username': user['username'],
                         'status': Presence.STATUS_OFFLINE
                     }, room=f"user_{contact_id}")
+
+    @socketio.on('heartbeat')
+    def handle_heartbeat(data=None):
+        """Handle heartbeat from client to refresh presence"""
+        sid = request.sid
+        user_id = None
+        
+        # Find the user ID for this session
+        for uid, session_id in connected_users.items():
+            if session_id == sid:
+                user_id = uid
+                break
+                
+        if user_id:
+            # Refresh the user's online status
+            Presence.update_status(user_id, Presence.STATUS_ONLINE)
+            return {"success": True}
+        
+        return {"success": False, "error": "User not found"}

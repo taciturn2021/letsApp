@@ -7,7 +7,6 @@ class Presence:
     
     STATUS_ONLINE = "online"
     STATUS_OFFLINE = "offline"
-    STATUS_AWAY = "away"
     
     @staticmethod
     def update_status(user_id, status):
@@ -16,7 +15,7 @@ class Presence:
         
         Parameters:
         - user_id: ID of the user
-        - status: Status (online, offline, away)
+        - status: Status (online, offline)
         """
         now = datetime.datetime.utcnow()
         

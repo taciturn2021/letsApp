@@ -14,26 +14,36 @@ def register_handlers(socketio):
     @socketio.on('connect')
     def handle_connect():
         """Handle client connection"""
+        print("\n========== WEBSOCKET: Client Connected ==========")
         token = request.args.get('token')
         if not token:
+            print("ERROR: No token provided for connection")
             return False  # reject connection
         
         try:
             # Decode token to get user_id
             decoded = decode_token(token)
             user_id = decoded['sub']
+            print(f"SUCCESS: User {user_id} connected with token")
             
             # Store the session
             connected_users[user_id] = request.sid
+            print(f"SUCCESS: Added user {user_id} to connected_users map")
             
             # Join a room specific to this user
             join_room(f"user_{user_id}")
+            print(f"SUCCESS: User {user_id} joined their personal room")
             
             # Update user presence
             Presence.update_status(user_id, Presence.STATUS_ONLINE)
+            print(f"SUCCESS: User {user_id} status set to ONLINE in database")
             
             # Get user data
             user = User.get_by_id(user_id)
+            print(f"SUCCESS: Retrieved user data for {user_id}")
+            
+            # Log current presence state
+            print(f"PRESENCE DEBUG: Current connected_users: {list(connected_users.keys())}")
             
             # Notify user's contacts about online status
             db = get_db()
@@ -50,7 +60,9 @@ def register_handlers(socketio):
                     
             return True
         except Exception as e:
-            print(f"WebSocket connection error: {str(e)}")
+            print(f"ERROR: WebSocket connection error: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
 
     @socketio.on('disconnect')

@@ -30,15 +30,8 @@ def validate_token(token):
 def register_handlers(socketio):
     """Register all Socket.IO event handlers for chat"""
     
-    @socketio.on('connect')
-    def handle_connect():
-        """Handle client connection"""
-        print("\n========== WEBSOCKET: Client Connected ==========")
-        
-    @socketio.on('disconnect')
-    def handle_disconnect():
-        """Handle client disconnection"""
-        print("\n========== WEBSOCKET: Client Disconnected ==========")
+    # Connect and disconnect events are handled in events.py
+    # Do not add them here to avoid conflicts
     
     @socketio.on('join')
     def handle_join(data):

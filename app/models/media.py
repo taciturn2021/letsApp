@@ -114,3 +114,35 @@ class Media:
                    .sort("created_at", -1)
                    .skip(skip)
                    .limit(limit))
+    
+    @staticmethod
+    def get_most_recent_by_user_and_filename(user_id, filename):
+        """
+        Find the most recently uploaded media by user that matches or contains the given filename
+        
+        Parameters:
+        - user_id: ID of the uploader
+        - filename: Original filename (or part of it) to match
+        
+        Returns:
+        - Most recent matching media document or None
+        """
+        # First try exact match
+        media = mongo.db.media.find_one({
+            "uploader_id": ObjectId(user_id),
+            "original_filename": filename,
+            "is_deleted": False
+        }, sort=[("created_at", -1)])
+        
+        if media:
+            return media
+            
+        # If no exact match, try partial match (case insensitive)
+        import re
+        pattern = re.compile(f".*{re.escape(filename)}.*", re.IGNORECASE)
+        
+        return mongo.db.media.find_one({
+            "uploader_id": ObjectId(user_id),
+            "original_filename": {"$regex": pattern},
+            "is_deleted": False
+        }, sort=[("created_at", -1)])

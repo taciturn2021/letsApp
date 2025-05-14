@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, current_app, send_from_directory
+from flask import Blueprint, request, jsonify, current_app, send_from_directory, url_for, redirect
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from marshmallow import ValidationError
 from app.models.user import User
@@ -134,7 +134,7 @@ def upload_profile_picture(user_id):
     
     file = request.files['file']
     
-    # Handle the file upload
+    # Handle the file upload - pass upload_folder for backward compatibility
     upload_folder = os.path.join(current_app.config['UPLOAD_FOLDER'], 'profile_pictures')
     result = save_profile_picture(file, current_user_id, upload_folder)
     
@@ -145,10 +145,14 @@ def upload_profile_picture(user_id):
     update_result = User.update_profile_picture(current_user_id, result["media_id"])
     
     if update_result["success"]:
+        # Return URLs for immediate use in frontend
+        media_id = result["media_id"]
         return jsonify({
             "success": True, 
             "message": "Profile picture updated successfully",
-            "media_id": result["media_id"]
+            "media_id": media_id,
+            "url": url_for('media.get_media_file', file_id=media_id, _external=True),
+            "thumbnail_url": url_for('media.get_media_file', file_id=media_id, thumbnail='true', _external=True)
         }), 200
     else:
         return jsonify(update_result), 500
@@ -187,31 +191,20 @@ def delete_profile_picture(user_id):
 
 @bp.route('/media/<media_id>', methods=['GET'])
 def get_media(media_id):
-    """Get media file (public route)"""
-    media = Media.get_by_id(media_id)
-    
-    if not media:
-        return jsonify({"success": False, "message": "Media not found"}), 404
-    
-    # Increment view count
-    Media.increment_view_count(media_id)
-    
-    # Determine if thumbnail or original is requested
+    """Get media file (public route) - Redirects to the media_routes endpoint"""
+    # This route is maintained for backward compatibility
+    # Redirect to the more appropriate media endpoint
     use_thumbnail = request.args.get('thumbnail', 'false').lower() == 'true'
     
-    if use_thumbnail and media.get("thumbnail"):
-        filename = media["thumbnail"]
-    else:
-        filename = media["filename"]
+    # Construct the redirect URL to the media route
+    redirect_url = url_for(
+        'media.get_media_file', 
+        file_id=media_id,
+        thumbnail='true' if use_thumbnail else 'false',
+        _external=True
+    )
     
-    # Determine the folder based on media type
-    if media["media_type"] == Media.TYPE_IMAGE:
-        folder = os.path.join(current_app.config['UPLOAD_FOLDER'], 'profile_pictures')
-    else:
-        folder = current_app.config['UPLOAD_FOLDER']
-    
-    # Send the file
-    return send_from_directory(folder, filename)
+    return redirect(redirect_url)
 
 # 4. Password Management
 

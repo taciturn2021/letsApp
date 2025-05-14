@@ -1,5 +1,6 @@
 import datetime
 import os
+import re
 from bson import ObjectId
 from app import mongo
 
@@ -77,3 +78,38 @@ class File:
         return list(mongo.db.files.find(
             {"uploader_id": ObjectId(user_id), "is_deleted": False}
         ).sort("created_at", -1).skip(skip).limit(limit))
+    
+    @staticmethod
+    def get_most_recent_by_user_and_filename(user_id, filename):
+        """
+        Find the most recently uploaded file by user that matches or contains the given filename
+        
+        Parameters:
+        - user_id: ID of the uploader
+        - filename: Original filename (or part of it) to match
+        
+        Returns:
+        - Most recent matching file document or None
+        """
+        try:
+            # First try exact match
+            file = mongo.db.files.find_one({
+                "uploader_id": ObjectId(user_id),
+                "original_filename": filename,
+                "is_deleted": False
+            }, sort=[("created_at", -1)])
+            
+            if file:
+                return file
+                
+            # If no exact match, try partial match (case insensitive)
+            pattern = re.compile(f".*{re.escape(filename)}.*", re.IGNORECASE)
+            
+            return mongo.db.files.find_one({
+                "uploader_id": ObjectId(user_id),
+                "original_filename": {"$regex": pattern},
+                "is_deleted": False
+            }, sort=[("created_at", -1)])
+        except Exception as e:
+            print(f"Error finding file by filename: {str(e)}")
+            return None

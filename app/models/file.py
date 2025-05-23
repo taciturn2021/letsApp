@@ -1,4 +1,5 @@
 import datetime
+from datetime import timezone
 import os
 import re
 from bson import ObjectId
@@ -28,7 +29,7 @@ class File:
             "file_size": file_size,
             "file_type": file_type,
             "uploader_id": ObjectId(uploader_id),
-            "created_at": datetime.datetime.utcnow(),
+            "created_at": datetime.datetime.now(timezone.utc),
             "download_count": 0,
             "is_deleted": False
         }

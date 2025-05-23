@@ -127,7 +127,7 @@ def register_handlers(socketio):
             status = presence_data.get("status", Presence.STATUS_OFFLINE)
             if status == Presence.STATUS_ONLINE:
                 if "last_updated" in presence_data:
-                    time_diff = datetime.datetime.utcnow() - presence_data["last_updated"]
+                    time_diff = datetime.datetime.now(timezone.utc) - presence_data["last_updated"]
                     if time_diff.total_seconds() > 600:  # 10 minutes instead of 2
                         status = Presence.STATUS_OFFLINE
             

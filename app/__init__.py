@@ -84,6 +84,10 @@ def create_app(test_config=None, with_socketio=True):
     from app.api.group_routes import bp as groups_bp
     app.register_blueprint(groups_bp, url_prefix='/api/groups')
     
+    # Register call routes
+    from app.api.call_routes import call_bp
+    app.register_blueprint(call_bp)
+    
     # Test route
     @app.route('/ping')
     def ping():
@@ -98,7 +102,10 @@ def create_app(test_config=None, with_socketio=True):
             
             # Create SocketIO instance
             socketio = SocketIO()
-            socketio.init_app(app, cors_allowed_origins=[app.config['FRONTEND']])
+            socketio.init_app(app, cors_allowed_origins=[
+                app.config['FRONTEND'], 
+                "http://localhost:3787"
+            ])
             
             # Store socketio instance in app for access from routes
             app.socketio = socketio
@@ -118,6 +125,10 @@ def create_app(test_config=None, with_socketio=True):
             
             from app.realtime.group_chat import register_handlers as register_group_chat
             register_group_chat(socketio)
+            
+            # Register calling handlers
+            from app.realtime.calling import register_handlers as register_calling
+            register_calling(socketio)
             
             print("SocketIO initialized successfully")
         except Exception as e:

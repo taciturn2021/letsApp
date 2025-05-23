@@ -82,6 +82,25 @@ def init_db(app):
             IndexModel([("last_updated", DESCENDING)])
         ])
         
+        # Create indexes for calls collection
+        db.calls.create_indexes([
+            IndexModel([("caller_id", ASCENDING)]),
+            IndexModel([("callee_id", ASCENDING)]),
+            IndexModel([("start_time", DESCENDING)]),
+            IndexModel([("status", ASCENDING)]),
+            IndexModel([("call_type", ASCENDING)]),
+            IndexModel([
+                ("caller_id", ASCENDING), 
+                ("callee_id", ASCENDING), 
+                ("start_time", DESCENDING)
+            ]),
+            IndexModel([
+                ("callee_id", ASCENDING), 
+                ("status", ASCENDING), 
+                ("start_time", DESCENDING)
+            ])  # For missed calls queries
+        ])
+        
         # Create indexes for audit and logging collections
         db.user_audit_log.create_indexes([
             IndexModel([("user_id", ASCENDING)]),

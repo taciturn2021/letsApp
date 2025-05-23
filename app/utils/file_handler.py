@@ -245,6 +245,131 @@ def save_profile_picture(file, uploader_id, upload_folder):
         print(f"[DEBUG] Unexpected error during profile picture upload: {str(e)}")
         return {"success": False, "message": f"Error uploading file: {str(e)}"}
 
+def save_group_icon(file, uploader_id, upload_folder):
+    """
+    Save and process a group icon using GridFS
+    
+    Parameters:
+    - file: FileStorage object from the request
+    - uploader_id: ID of the user uploading the file
+    - upload_folder: Path to the upload folder (kept for compatibility but not used)
+    
+    Returns:
+    - Success/failure status and message
+    - Media document ID if successful
+    """
+    print(f"[DEBUG] Starting group icon upload process using GridFS...")
+    
+    # Validate file
+    if not file:
+        print("[DEBUG] Error: No file provided")
+        return {"success": False, "message": "No file provided"}
+    
+    print(f"[DEBUG] File name: {file.filename}")
+    
+    if not allowed_image_file(file.filename):
+        print(f"[DEBUG] Error: Invalid file type for {file.filename}")
+        return {"success": False, "message": "File type not allowed. Allowed types: png, jpg, jpeg, gif, webp"}
+    
+    # Check file size
+    try:
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)  # Reset file pointer
+        
+        print(f"[DEBUG] File size: {file_size / 1024:.2f}KB")
+        
+        if file_size > MAX_PROFILE_IMAGE_SIZE:
+            print(f"[DEBUG] Error: File too large ({file_size / 1024:.2f}KB > {MAX_PROFILE_IMAGE_SIZE / 1024}KB)")
+            return {"success": False, "message": f"File too large. Maximum size is {MAX_PROFILE_IMAGE_SIZE/1024}KB"}
+        
+        # Secure the filename and generate a unique name
+        original_filename = secure_filename(file.filename)
+        unique_id = uuid.uuid4().hex
+        
+        # Read file data
+        file_data = file.read()
+        file.seek(0)  # Reset file pointer for potential thumbnail generation
+        
+        # Get mime type
+        mime_type = file.content_type or get_mime_type(file_data)
+        
+        # Create thumbnail
+        thumbnail_id = None
+        width = None
+        height = None
+        
+        try:
+            # Open the image using PIL
+            img = Image.open(BytesIO(file_data))
+            # Get image dimensions
+            width, height = img.size
+            
+            # Create thumbnail
+            img.thumbnail(THUMBNAIL_SIZE)
+            thumbnail_buffer = BytesIO()
+            img.save(thumbnail_buffer, format=img.format or 'JPEG')
+            thumbnail_data = thumbnail_buffer.getvalue()
+            
+            # Store thumbnail in GridFS
+            thumbnail_id = fs.put(
+                thumbnail_data,
+                filename=f"thumb_{unique_id}",
+                content_type=mime_type,
+                metadata={
+                    "uploader_id": uploader_id,
+                    "original_filename": f"thumb_{original_filename}",
+                    "is_thumbnail": True,
+                    "for_file": unique_id
+                }
+            )
+            print(f"[DEBUG] Thumbnail saved to GridFS with ID: {thumbnail_id}")
+        except Exception as e:
+            print(f"[DEBUG] Error creating thumbnail: {str(e)}")
+            # Continue without thumbnail if there's an error
+        
+        # Store the file in GridFS
+        gridfs_id = fs.put(
+            file_data,
+            filename=unique_id,
+            content_type=mime_type,
+            metadata={
+                "uploader_id": uploader_id,
+                "original_filename": original_filename,
+                "file_size": file_size,
+                "thumbnail_id": thumbnail_id,
+                "width": width,
+                "height": height,
+                "media_type": "group_icon"
+            }
+        )
+        
+        print(f"[DEBUG] Group icon saved to GridFS with ID: {gridfs_id}")
+        
+        # Save media metadata to database
+        print("[DEBUG] Saving media metadata to database...")
+        media_data = Media.save_media_metadata(
+            filename=str(gridfs_id),  # Store GridFS ID as filename
+            original_filename=original_filename,
+            file_size=file_size,
+            media_type=Media.TYPE_IMAGE,
+            mime_type=mime_type,
+            uploader_id=uploader_id,
+            thumbnail=str(thumbnail_id) if thumbnail_id else None,
+            width=width,
+            height=height
+        )
+        
+        print("[DEBUG] Group icon upload completed successfully")
+        return {
+            "success": True,
+            "message": "Group icon uploaded successfully",
+            "media_id": str(media_data["_id"])
+        }
+    except Exception as e:
+        print(f"[DEBUG] Unexpected error during group icon upload: {str(e)}")
+        return {"success": False, "message": f"Error uploading file: {str(e)}"}
+
 def save_file_to_gridfs(file, uploader_id, file_type=None, message_id=None, group_message_id=None):
     """
     Save a file using GridFS

@@ -4,6 +4,7 @@ from app.models import User, Message, Group, GroupMessage, Contact, File, Presen
 from app.models.presence import Presence
 from bson import ObjectId
 import datetime
+from datetime import timezone
 
 
 bp = Blueprint('load', __name__)
@@ -23,6 +24,9 @@ def get_users():
         if 'password' in user:
             del user['password']
         
+        # Add consistent ID format for frontend compatibility
+        user['id'] = str(user.get('_id'))
+        
         # Add presence status
         user_id = str(user.get('_id'))
         user['status'] = Presence.get_status(user_id)
@@ -40,11 +44,11 @@ def user_stats():
     active_users = mongo.db.users.count_documents({"is_active": True})
     
     # Get users registered in the last 30 days
-    thirty_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=30)
+    thirty_days_ago = datetime.datetime.now(timezone.utc) - datetime.timedelta(days=30)
     new_users = mongo.db.users.count_documents({"created_at": {"$gte": thirty_days_ago}})
     
     # Get users active in the last 24 hours
-    day_ago = datetime.datetime.utcnow() - datetime.timedelta(days=1)
+    day_ago = datetime.datetime.now(timezone.utc) - datetime.timedelta(days=1)
     active_today = mongo.db.users.count_documents({"last_seen": {"$gte": day_ago}})
     
     return jsonify({
@@ -61,7 +65,7 @@ def message_stats():
     total_group_messages = mongo.db.group_messages.count_documents({})
     
     # Get messages sent in the last 30 days
-    thirty_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=30)
+    thirty_days_ago = datetime.datetime.now(timezone.utc) - datetime.timedelta(days=30)
     recent_messages = mongo.db.messages.count_documents({"created_at": {"$gte": thirty_days_ago}})
     recent_group_messages = mongo.db.group_messages.count_documents({"created_at": {"$gte": thirty_days_ago}})
     
@@ -93,7 +97,7 @@ def group_stats():
     active_groups = mongo.db.groups.count_documents({"is_active": True})
     
     # Get groups created in the last 30 days
-    thirty_days_ago = datetime.datetime.utcnow() - datetime.timedelta(days=30)
+    thirty_days_ago = datetime.datetime.now(timezone.utc) - datetime.timedelta(days=30)
     new_groups = mongo.db.groups.count_documents({"created_at": {"$gte": thirty_days_ago}})
     
     # Get average members per group
@@ -157,7 +161,7 @@ def presence_stats():
     total_online = mongo.db.presence.count_documents({"status": "online"})
     
     # Get peak online times (by hour)
-    day_ago = datetime.datetime.utcnow() - datetime.timedelta(days=1)
+    day_ago = datetime.datetime.now(timezone.utc) - datetime.timedelta(days=1)
     pipeline = [
         {"$match": {"last_updated": {"$gte": day_ago}}},
         {"$project": {

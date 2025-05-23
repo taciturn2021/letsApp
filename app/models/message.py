@@ -1,4 +1,5 @@
 import datetime
+from datetime import timezone
 from bson import ObjectId
 from app import mongo
 
@@ -33,8 +34,8 @@ class Message:
                 "content": content,
                 "message_type": message_type,
                 "attachment": attachment,
-                "created_at": datetime.datetime.utcnow(),
-                "updated_at": datetime.datetime.utcnow(),
+                "created_at": datetime.datetime.now(timezone.utc),
+                "updated_at": datetime.datetime.now(timezone.utc),
                 "status": Message.STATUS_SENT,
                 "is_deleted": False,
                 "room_id" : f"{min(sender_id, recipient_id)}_{max(sender_id, recipient_id)}",  # Generate a consistent room ID for the message
@@ -128,7 +129,7 @@ class Message:
             {
                 "$set": {
                     "status": status,
-                    "updated_at": datetime.datetime.utcnow()
+                    "updated_at": datetime.datetime.now(timezone.utc)
                 }
             }
         )
@@ -146,7 +147,7 @@ class Message:
             {
                 "$set": {
                     "status": Message.STATUS_DELIVERED,
-                    "updated_at": datetime.datetime.utcnow()
+                    "updated_at": datetime.datetime.now(timezone.utc)
                 }
             }
         )
@@ -164,7 +165,7 @@ class Message:
             {
                 "$set": {
                     "status": Message.STATUS_READ,
-                    "updated_at": datetime.datetime.utcnow()
+                    "updated_at": datetime.datetime.now(timezone.utc)
                 }
             }
         )
@@ -178,7 +179,7 @@ class Message:
             {
                 "$set": {
                     "is_deleted": True,
-                    "updated_at": datetime.datetime.utcnow()
+                    "updated_at": datetime.datetime.now(timezone.utc)
                 }
             }
         )

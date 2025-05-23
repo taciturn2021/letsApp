@@ -1,4 +1,5 @@
 import datetime
+from datetime import timezone
 from bson import ObjectId
 from app import mongo
 
@@ -37,7 +38,7 @@ class Media:
             "media_type": media_type,
             "mime_type": mime_type,
             "uploader_id": ObjectId(uploader_id),
-            "created_at": datetime.datetime.utcnow(),
+            "created_at": datetime.datetime.now(timezone.utc),
             "view_count": 0,
             "is_deleted": False
         }

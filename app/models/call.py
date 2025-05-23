@@ -29,7 +29,7 @@ class Call:
         call_data = {
             "caller_id": ObjectId(caller_id),
             "call_type": call_type,
-            "started_at": datetime.datetime.utcnow(),
+            "started_at": datetime.datetime.now(timezone.utc),
             "status": Call.STATUS_INITIATED,
             "ended_at": None,
             "duration": 0,  # Duration in seconds
@@ -62,7 +62,7 @@ class Call:
         
         # If call ended, update ended_at and calculate duration
         if status == Call.STATUS_ENDED or status == Call.STATUS_MISSED or status == Call.STATUS_REJECTED:
-            now = datetime.datetime.utcnow()
+            now = datetime.datetime.now(timezone.utc)
             call = Call.get_by_id(call_id)
             
             if call and call["started_at"]:
@@ -81,7 +81,7 @@ class Call:
     def add_participant(call_id, user_id, joined_at=None):
         """Add a participant to a group call"""
         if not joined_at:
-            joined_at = datetime.datetime.utcnow()
+            joined_at = datetime.datetime.now(timezone.utc)
             
         result = mongo.db.calls.update_one(
             {"_id": ObjectId(call_id)},
@@ -97,7 +97,7 @@ class Call:
     @staticmethod
     def remove_participant(call_id, user_id):
         """Mark a participant as having left a call"""
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(timezone.utc)
         
         result = mongo.db.calls.update_one(
             {

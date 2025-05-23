@@ -1,6 +1,8 @@
 import datetime
+from datetime import timezone
 from bson import ObjectId
 from app import mongo
+import gridfs
 
 class Group:
     """Group model for group chats."""
@@ -23,8 +25,8 @@ class Group:
             "creator_id": ObjectId(creator_id),
             "members": [ObjectId(creator_id)],  # Creator is the first member
             "admins": [ObjectId(creator_id)],   # Creator is the first admin
-            "created_at": datetime.datetime.utcnow(),
-            "updated_at": datetime.datetime.utcnow(),
+            "created_at": datetime.datetime.now(timezone.utc),
+            "updated_at": datetime.datetime.now(timezone.utc),
             "is_active": True
         }
         
@@ -45,52 +47,83 @@ class Group:
         ).sort("updated_at", -1))
     
     @staticmethod
-    def add_member(group_id, user_id, added_by):
-        """Add a user to a group"""
-        # Check if user is already a member
-        group = Group.get_by_id(group_id)
-        if not group or ObjectId(user_id) in group["members"]:
+    def add_member(group_id, user_id, admin_id):
+        """Add a member to the group (admin only)"""
+        try:
+            # Convert IDs to ObjectId
+            group_obj_id = ObjectId(group_id)
+            user_obj_id = ObjectId(user_id)
+            admin_obj_id = ObjectId(admin_id)
+            
+            # Check if group exists and admin has permission
+            group = mongo.db.groups.find_one({"_id": group_obj_id})
+            if not group:
+                return False
+            
+            if admin_obj_id not in group.get('admins', []):
+                return False
+            
+            # Check if user is already a member
+            if user_obj_id in group.get('members', []):
+                return False
+            
+            # Add user to members list
+            result = mongo.db.groups.update_one(
+                {"_id": group_obj_id},
+                {
+                    "$push": {"members": user_obj_id},
+                    "$set": {"updated_at": datetime.datetime.now(timezone.utc)}
+                }
+            )
+            
+            return result.modified_count > 0
+            
+        except Exception as e:
+            print(f"Error adding member to group: {e}")
             return False
-        
-        # Add user to the group
-        result = mongo.db.groups.update_one(
-            {"_id": ObjectId(group_id)},
-            {
-                "$push": {"members": ObjectId(user_id)},
-                "$set": {"updated_at": datetime.datetime.utcnow()}
-            }
-        )
-        
-        return result.modified_count > 0
     
     @staticmethod
-    def remove_member(group_id, user_id, removed_by):
-        """Remove a user from a group"""
-        group = Group.get_by_id(group_id)
-        
-        # Check if group exists and user is a member
-        if not group or ObjectId(user_id) not in group["members"]:
-            return False
-        
-        # Check if removed_by is an admin
-        if ObjectId(removed_by) not in group["admins"]:
-            # Allow self-removal
-            if user_id != removed_by:
+    def remove_member(group_id, user_id, admin_id):
+        """Remove a member from the group (admin only or self-removal)"""
+        try:
+            # Convert IDs to ObjectId
+            group_obj_id = ObjectId(group_id)
+            user_obj_id = ObjectId(user_id)
+            admin_obj_id = ObjectId(admin_id)
+            
+            # Check if group exists
+            group = mongo.db.groups.find_one({"_id": group_obj_id})
+            if not group:
                 return False
-        
-        # Remove user from members and admins
-        result = mongo.db.groups.update_one(
-            {"_id": ObjectId(group_id)},
-            {
-                "$pull": {
-                    "members": ObjectId(user_id),
-                    "admins": ObjectId(user_id)
-                },
-                "$set": {"updated_at": datetime.datetime.utcnow()}
-            }
-        )
-        
-        return result.modified_count > 0
+            
+            # Check permissions (admin or self-removal)
+            is_admin = admin_obj_id in group.get('admins', [])
+            is_self_removal = str(user_id) == str(admin_id)
+            
+            if not is_admin and not is_self_removal:
+                return False
+            
+            # Check if user is a member
+            if user_obj_id not in group.get('members', []):
+                return False
+            
+            # Remove user from members and admins lists
+            result = mongo.db.groups.update_one(
+                {"_id": group_obj_id},
+                {
+                    "$pull": {
+                        "members": user_obj_id,
+                        "admins": user_obj_id
+                    },
+                    "$set": {"updated_at": datetime.datetime.now(timezone.utc)}
+                }
+            )
+            
+            return result.modified_count > 0
+            
+        except Exception as e:
+            print(f"Error removing member from group: {e}")
+            return False
     
     @staticmethod
     def make_admin(group_id, user_id, action_by):
@@ -106,33 +139,95 @@ class Group:
             {"_id": ObjectId(group_id)},
             {
                 "$addToSet": {"admins": ObjectId(user_id)},
-                "$set": {"updated_at": datetime.datetime.utcnow()}
+                "$set": {"updated_at": datetime.datetime.now(timezone.utc)}
             }
         )
         
         return result.modified_count > 0
     
     @staticmethod
-    def update(group_id, update_data, user_id):
-        """Update group information (only admins)"""
-        group = Group.get_by_id(group_id)
-        
-        # Verify permissions
-        if not group or ObjectId(user_id) not in group["admins"]:
-            return False
-        
-        # Filter allowed fields
-        allowed_fields = ["name", "description", "icon"]
-        update_dict = {k: v for k, v in update_data.items() if k in allowed_fields}
-        
-        if update_dict:
-            update_dict["updated_at"] = datetime.datetime.utcnow()
+    def update(group_id, update_data, admin_id):
+        """Update group information (admin only)"""
+        try:
+            # Convert IDs to ObjectId
+            group_obj_id = ObjectId(group_id)
+            admin_obj_id = ObjectId(admin_id)
+            
+            # Check if group exists and admin has permission
+            group = mongo.db.groups.find_one({"_id": group_obj_id})
+            if not group:
+                return False
+            
+            if admin_obj_id not in group.get('admins', []):
+                return False
+            
+            # Prepare update data
+            update_fields = {**update_data, "updated_at": datetime.datetime.now(timezone.utc)}
             
             result = mongo.db.groups.update_one(
-                {"_id": ObjectId(group_id)},
-                {"$set": update_dict}
+                {"_id": group_obj_id},
+                {"$set": update_fields}
             )
             
             return result.modified_count > 0
+            
+        except Exception as e:
+            print(f"Error updating group: {e}")
+            return False
+    
+    @staticmethod
+    def update_icon(group_id, media_id, user_id):
+        """Update group icon (only admins)"""
+        group = Group.get_by_id(group_id)
         
-        return False
+        # Verify permissions - only admins can update icon
+        if not group or ObjectId(user_id) not in group["admins"]:
+            return False
+        
+        result = mongo.db.groups.update_one(
+            {"_id": ObjectId(group_id)},
+            {
+                "$set": {
+                    "icon": media_id,
+                    "updated_at": datetime.datetime.now(timezone.utc)
+                }
+            }
+        )
+        
+        return result.modified_count > 0
+    
+    @staticmethod
+    def remove_icon(group_id, admin_id):
+        """Remove group icon (admin only)"""
+        try:
+            # Get the group first
+            group = Group.get_by_id(group_id)
+            if not group:
+                return False
+                
+            # Check if user is admin
+            if ObjectId(admin_id) not in group.get('admins', []):
+                return False
+            
+            # Remove icon from GridFS if exists
+            if group.get('icon'):
+                fs = gridfs.GridFS(mongo.db)
+                try:
+                    fs.delete(ObjectId(group['icon']))
+                except Exception as e:
+                    print(f"Error deleting icon file: {e}")
+            
+            # Update group document
+            result = mongo.db.groups.update_one(
+                {"_id": ObjectId(group_id)},
+                {
+                    "$unset": {"icon": ""},
+                    "$set": {"updated_at": datetime.datetime.now(timezone.utc)}
+                }
+            )
+            
+            return result.modified_count > 0
+            
+        except Exception as e:
+            print(f"Error removing group icon: {e}")
+            return False

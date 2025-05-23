@@ -37,6 +37,7 @@ def create_app(test_config=None, with_socketio=True):
         os.makedirs(app.instance_path)
         os.makedirs(app.config['UPLOAD_FOLDER'])
         os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'profile_pictures'))
+        os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'group_icons'))
     except OSError:
         pass
     
@@ -80,6 +81,9 @@ def create_app(test_config=None, with_socketio=True):
     from app.api.media_routes import bp as media_bp
     app.register_blueprint(media_bp, url_prefix='/api/media')
     
+    from app.api.group_routes import bp as groups_bp
+    app.register_blueprint(groups_bp, url_prefix='/api/groups')
+    
     # Test route
     @app.route('/ping')
     def ping():
@@ -96,6 +100,9 @@ def create_app(test_config=None, with_socketio=True):
             socketio = SocketIO()
             socketio.init_app(app, cors_allowed_origins=[app.config['FRONTEND']])
             
+            # Store socketio instance in app for access from routes
+            app.socketio = socketio
+            
             # Register all socket event handlers
             from app.realtime.events import register_handlers as register_events
             register_events(socketio)
@@ -108,6 +115,9 @@ def create_app(test_config=None, with_socketio=True):
             
             from app.realtime.chat import register_handlers as register_chat
             register_chat(socketio)
+            
+            from app.realtime.group_chat import register_handlers as register_group_chat
+            register_group_chat(socketio)
             
             print("SocketIO initialized successfully")
         except Exception as e:

@@ -513,4 +513,280 @@ def update_group_name(group_id):
         
     except Exception as e:
         print(f"Error updating group name: {str(e)}")
-        return jsonify({"success": False, "message": f"Error updating group name: {str(e)}"}), 500 
+        return jsonify({"success": False, "message": f"Error updating group name: {str(e)}"}), 500
+
+@bp.route('/<group_id>/messages', methods=['POST'])
+@jwt_required()
+def send_group_message(group_id):
+    """Send a message to a group with proper attachment handling"""
+    current_user_id = get_jwt_identity()
+    
+    # Check if user is a member of the group
+    group = Group.get_by_id(group_id)
+    if not group:
+        return jsonify({"success": False, "message": "Group not found"}), 404
+    
+    if ObjectId(current_user_id) not in group['members']:
+        return jsonify({"success": False, "message": "You are not a member of this group"}), 403
+    
+    data = request.json
+    
+    print(f"\n[GROUP API] Sending message from {current_user_id} to group {group_id}")
+    print(f"[GROUP API] Message data: {data}")
+    
+    content = data.get('content', '')
+    message_type = data.get('message_type', 'text')
+    
+    # Process attachment if present
+    attachment = None
+    if data.get('attachment'):
+        attachment_data = data.get('attachment')
+        
+        # Ensure we have a valid file_id
+        if attachment_data.get('file_id') and attachment_data.get('file_id') != 'undefined':
+            attachment = attachment_data
+            print(f"[GROUP API] Using attachment with file_id: {attachment_data.get('file_id')}")
+            
+            # If message type is not set, derive it from attachment type
+            if message_type == 'text' and attachment_data.get('file_type'):
+                message_type = attachment_data.get('file_type')
+        else:
+            print(f"[GROUP API] Warning: Invalid file_id in attachment: {attachment_data.get('file_id')}")
+    
+    try:
+        # Import GroupMessage here to avoid circular imports
+        from app.models.group_message import GroupMessage
+        
+        # Create the group message
+        message = GroupMessage.create(
+            group_id=group_id,
+            sender_id=current_user_id,
+            content=content,
+            message_type=message_type,
+            attachment=attachment
+        )
+        
+        # Get sender details
+        sender = User.get_by_id(current_user_id)
+        
+        # Format the response
+        formatted_message = {
+            "id": str(message["_id"]),
+            "group_id": str(message["group_id"]),
+            "sender": str(message["sender_id"]),
+            "sender_name": sender.get("username", ""),
+            "sender_avatar": sender.get("profile_picture", ""),
+            "content": message["content"],
+            "timestamp": message["created_at"].isoformat(),
+            "message_type": message.get("message_type", "text"),
+            "attachment": message.get("attachment"),
+            "read_by": [str(user_id) for user_id in message.get("read_by", [])]
+        }
+        
+        # Emit a socket.io event to notify group members about the new message
+        from flask_socketio import emit
+        from app.realtime.events import connected_users
+        
+        try:
+            # Get the attachment object/null from the created message
+            attachment_obj = message.get('attachment')
+
+            # Emit the message to the group room
+            emit('receive_group_message', {
+                'id': str(message['_id']),
+                'group_id': str(message['group_id']),
+                'sender': str(message['sender_id']),
+                'sender_name': sender.get('username', ''),
+                'sender_avatar': sender.get('profile_picture', ''),
+                'content': message['content'],
+                'timestamp': message['created_at'].isoformat(),
+                'message_type': message['message_type'],
+                # Format as an array for the frontend
+                'attachments': [attachment_obj] if attachment_obj else [],
+                'read_by': [str(user_id) for user_id in message.get('read_by', [])]
+            }, room=f"group_{group_id}", namespace='/')
+            
+            print(f"[GROUP API] Message notification sent to group room: group_{group_id}")
+        except Exception as e:
+            print(f"[GROUP API] Error emitting socket event: {str(e)}")
+        
+        print(f"[GROUP API] Group message sent successfully with ID: {str(message['_id'])}")
+        return jsonify({
+            "success": True,
+            "message": "Group message sent successfully",
+            "data": formatted_message
+        })
+    except Exception as e:
+        print(f"[GROUP API] ❌ Error sending group message: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": f"Error sending group message: {str(e)}"
+        }), 500
+
+@bp.route('/<group_id>/messages', methods=['GET'])
+@jwt_required()
+def get_group_messages(group_id):
+    """Get messages for a group with pagination"""
+    current_user_id = get_jwt_identity()
+    
+    # Check if user is a member of the group
+    group = Group.get_by_id(group_id)
+    if not group:
+        return jsonify({"success": False, "message": "Group not found"}), 404
+    
+    if ObjectId(current_user_id) not in group['members']:
+        return jsonify({"success": False, "message": "You are not a member of this group"}), 403
+    
+    # Use the page/limit provided by the client, defaulting to 1 and 20 if not present
+    page = request.args.get('page', 1, type=int)
+    limit = request.args.get('limit', 20, type=int)
+    
+    print(f"\n[GROUP API ROUTE] Getting messages for group {group_id}")
+    print(f"[GROUP API ROUTE] Page: {page}, Limit: {limit}")
+    
+    try:
+        # Import GroupMessage here to avoid circular imports
+        from app.models.group_message import GroupMessage
+        
+        # Calculate skip value for pagination
+        skip_count = (page - 1) * limit
+        
+        # Get messages for the group
+        query = {
+            "group_id": ObjectId(group_id),
+            "is_deleted": False
+        }
+        
+        # Get total count for this group to determine hasMore later
+        total_messages_in_group = mongo.db.group_messages.count_documents(query)
+        
+        # Get messages, sorted newest first, then apply skip and limit
+        messages_cursor = mongo.db.group_messages \
+                        .find(query) \
+                        .sort("created_at", -1) \
+                        .skip(skip_count) \
+                        .limit(limit)
+        
+        paginated_messages = list(messages_cursor)
+        
+        print(f"[GROUP API ROUTE] Found {len(paginated_messages)} messages after skip/limit. Total in group: {total_messages_in_group}")
+        
+        # Determine if there are more messages
+        has_more = (skip_count + len(paginated_messages)) < total_messages_in_group
+        
+        # Debug: Print the first few messages if any
+        if paginated_messages:
+            print(f"[GROUP API ROUTE] First message of page: {paginated_messages[0]}")
+        
+        # Format messages for API response
+        formatted_messages = []
+        for msg_dict in reversed(paginated_messages): # Reverse to send oldest first for the current page
+            # Fetch sender details to include sender_name and sender_avatar
+            sender_info = User.get_by_id(msg_dict["sender_id"])
+            sender_name = sender_info.get("username") if sender_info else "User"
+            sender_avatar = sender_info.get("profile_picture") if sender_info else None
+
+            # Get the attachment object/null from the DB record
+            attachment_obj = msg_dict.get("attachment")
+
+            formatted_message = {
+                "id": str(msg_dict["_id"]),
+                "group_id": str(msg_dict["group_id"]),
+                "sender": str(msg_dict["sender_id"]),
+                "content": msg_dict["content"],
+                "timestamp": msg_dict["created_at"].isoformat() if isinstance(msg_dict["created_at"], datetime.datetime) else msg_dict["created_at"],
+                "message_type": msg_dict.get("message_type", "text"),
+                # Format as an array for the frontend
+                "attachments": [attachment_obj] if attachment_obj else [], 
+                "sender_name": sender_name,
+                "sender_avatar": sender_avatar,
+                "read_by": [str(user_id) for user_id in msg_dict.get("read_by", [])]
+            }
+            formatted_messages.append(formatted_message)
+        
+        print(f"[GROUP API ROUTE] Returning {len(formatted_messages)} formatted messages for page {page}")
+        return jsonify({
+            "success": True,
+            "data": {
+                "messages": formatted_messages,
+                "hasMore": has_more
+            }
+        })
+    except Exception as e:
+        print(f"[GROUP API ROUTE] ❌ Unexpected error in route: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "message": f"Unexpected error retrieving group messages: {str(e)}"
+        }), 500
+
+@bp.route('/<group_id>/messages/<message_id>/read', methods=['POST'])
+@jwt_required()
+def mark_group_message_read(group_id, message_id):
+    """Mark a group message as read by the current user"""
+    current_user_id = get_jwt_identity()
+    
+    # Check if user is a member of the group
+    group = Group.get_by_id(group_id)
+    if not group:
+        return jsonify({"success": False, "message": "Group not found"}), 404
+    
+    if ObjectId(current_user_id) not in group['members']:
+        return jsonify({"success": False, "message": "You are not a member of this group"}), 403
+    
+    try:
+        # Import GroupMessage here to avoid circular imports
+        from app.models.group_message import GroupMessage
+        
+        # Mark the message as read
+        success = GroupMessage.mark_read(message_id, current_user_id)
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "Message marked as read"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "Message not found or already read"
+            }), 404
+    except Exception as e:
+        print(f"Error marking group message as read: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": f"Error marking message as read: {str(e)}"
+        }), 500
+
+@bp.route('/<group_id>/messages/mark-all-read', methods=['POST'])
+@jwt_required()
+def mark_all_group_messages_read(group_id):
+    """Mark all messages in a group as read by the current user"""
+    current_user_id = get_jwt_identity()
+    
+    # Check if user is a member of the group
+    group = Group.get_by_id(group_id)
+    if not group:
+        return jsonify({"success": False, "message": "Group not found"}), 404
+    
+    if ObjectId(current_user_id) not in group['members']:
+        return jsonify({"success": False, "message": "You are not a member of this group"}), 403
+    
+    try:
+        # Import GroupMessage here to avoid circular imports
+        from app.models.group_message import GroupMessage
+        
+        # Mark all messages as read
+        count = GroupMessage.mark_all_read(group_id, current_user_id)
+        
+        return jsonify({
+            "success": True,
+            "message": f"Marked {count} messages as read"
+        })
+    except Exception as e:
+        print(f"Error marking all group messages as read: {str(e)}")
+        return jsonify({
+            "success": False,
+            "message": f"Error marking messages as read: {str(e)}"
+        }), 500 

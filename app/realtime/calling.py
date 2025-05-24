@@ -173,6 +173,13 @@ def register_handlers(socketio):
                 emit('call_error', {'message': 'Unauthorized to answer this call'})
                 return
             
+            # Prevent duplicate answer handling
+            if call_info['status'] in ['answered', 'connected']:
+                print(f"Call {call_id} already answered, ignoring duplicate answer")
+                # Still send confirmation to avoid frontend hanging
+                emit('call_answer_confirmed', {'call_id': call_id})
+                return
+            
             # Update call status
             Call.update_call_status(call_id, 'answered')
             active_calls[call_id]['status'] = 'answered'

@@ -25,6 +25,7 @@ class DatabaseViews:
                         "_id": "$room_id",
                         "participant_1": {"$first": "$sender_id"},
                         "participant_2": {"$first": "$recipient_id"},
+                        "all_participants": {"$addToSet": {"$ifNull": ["$sender_id", "$recipient_id"]}},
                         "last_message": {"$last": "$content"},
                         "last_message_time": {"$max": "$created_at"},
                         "last_message_type": {"$last": "$message_type"},
@@ -35,6 +36,42 @@ class DatabaseViews:
                             }
                         },
                         "first_message_time": {"$min": "$created_at"}
+                    }
+                },
+                {
+                    "$lookup": {
+                        "from": "users",
+                        "localField": "participant_1",
+                        "foreignField": "_id",
+                        "as": "user1_info"
+                    }
+                },
+                {
+                    "$lookup": {
+                        "from": "users",
+                        "localField": "participant_2", 
+                        "foreignField": "_id",
+                        "as": "user2_info"
+                    }
+                },
+                {
+                    "$addFields": {
+                        "conversation_name": {
+                            "$cond": {
+                                "if": {"$and": [
+                                    {"$gt": [{"$size": "$user1_info"}, 0]},
+                                    {"$gt": [{"$size": "$user2_info"}, 0]}
+                                ]},
+                                "then": {
+                                    "$concat": [
+                                        {"$arrayElemAt": ["$user1_info.username", 0]},
+                                        " ↔ ",
+                                        {"$arrayElemAt": ["$user2_info.username", 0]}
+                                    ]
+                                },
+                                "else": "Unknown Conversation"
+                            }
+                        }
                     }
                 },
                 {
@@ -191,12 +228,17 @@ class DatabaseViews:
                             "$cond": {
                                 "if": {"$and": ["$first_message_time", "$last_message_time"]},
                                 "then": {
-                                    "$divide": [
-                                        {"$subtract": ["$last_message_time", "$first_message_time"]},
-                                        86400000  # milliseconds in a day
+                                    "$max": [
+                                        1,  # minimum 1 day
+                                        {
+                                            "$divide": [
+                                                {"$subtract": ["$last_message_time", "$first_message_time"]},
+                                                86400000  # milliseconds in a day
+                                            ]
+                                        }
                                     ]
                                 },
-                                "else": 0
+                                "else": 1
                             }
                         }
                     }

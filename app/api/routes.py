@@ -6,9 +6,20 @@ from app.models.views import DatabaseViews
 from bson import ObjectId
 import datetime
 from datetime import timezone
+import json
 
 
 bp = Blueprint('load', __name__)
+
+def serialize_datetime(obj):
+    """Convert datetime objects to ISO format strings"""
+    if isinstance(obj, datetime.datetime):
+        return obj.isoformat()
+    elif isinstance(obj, list):
+        return [serialize_datetime(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {key: serialize_datetime(value) for key, value in obj.items()}
+    return obj
 
 @bp.route('/status', methods=['GET'])
 def status():
@@ -123,34 +134,85 @@ def message_stats():
     ]
     hourly_messages = list(mongo.db.messages.aggregate(hourly_pipeline))
     
-    # Get conversation summary data from view
+    # Get conversation summary data with resolved usernames
     try:
-        conversation_data = DatabaseViews.get_view_data("conversation_summary", limit=5)
+        # Use aggregation pipeline to get conversations with usernames
+        conversation_pipeline = [
+            {"$match": {"is_deleted": False}},
+            {"$group": {
+                "_id": "$room_id",
+                "participant_1": {"$first": "$sender_id"},
+                "participant_2": {"$first": "$recipient_id"},
+                "total_messages": {"$sum": 1},
+                "last_message_time": {"$max": "$created_at"},
+                "unread_count": {
+                    "$sum": {
+                        "$cond": [{"$eq": ["$status", "sent"]}, 1, 0]
+                    }
+                }
+            }},
+            {"$lookup": {
+                "from": "users",
+                "localField": "participant_1",
+                "foreignField": "_id",
+                "as": "user1_info"
+            }},
+            {"$lookup": {
+                "from": "users",
+                "localField": "participant_2", 
+                "foreignField": "_id",
+                "as": "user2_info"
+            }},
+            {"$addFields": {
+                "conversation_name": {
+                    "$cond": {
+                        "if": {"$and": [
+                            {"$gt": [{"$size": "$user1_info"}, 0]},
+                            {"$gt": [{"$size": "$user2_info"}, 0]}
+                        ]},
+                        "then": {
+                            "$concat": [
+                                {"$arrayElemAt": ["$user1_info.username", 0]},
+                                " ↔ ",
+                                {"$arrayElemAt": ["$user2_info.username", 0]}
+                            ]
+                        },
+                        "else": "Unknown Conversation"
+                    }
+                }
+            }},
+            {"$sort": {"total_messages": -1}},
+            {"$limit": 5}
+        ]
+        
+        conversation_result = list(mongo.db.messages.aggregate(conversation_pipeline))
         active_conversations = [
             {
-                "room_id": conv.get("_id"),
+                "room_id": conv.get("conversation_name", conv.get("_id")),
                 "total_messages": conv.get("total_messages", 0),
                 "last_message_time": conv.get("last_message_time"),
                 "unread_count": conv.get("unread_count", 0)
             }
-            for conv in conversation_data
+            for conv in conversation_result
         ]
     except Exception as e:
         print(f"Error getting conversation data: {e}")
         active_conversations = []
     
-    return jsonify({
+    response_data = {
         "total_messages": total_messages,
         "total_group_messages": total_group_messages,
         "recent_messages": recent_messages,
         "recent_group_messages": recent_group_messages,
-        "daily_messages": daily_messages,
-        "daily_group_messages": daily_group_messages,
+        "daily_messages": serialize_datetime(daily_messages),
+        "daily_group_messages": serialize_datetime(daily_group_messages),
         "message_type_distribution": message_types,
         "group_message_type_distribution": group_message_types,
         "hourly_message_distribution": hourly_messages,
-        "most_active_conversations": active_conversations
-    })
+        "most_active_conversations": serialize_datetime(active_conversations)
+    }
+    
+    return jsonify(response_data)
 
 @bp.route('/analytics/group_stats', methods=['GET'])
 def group_stats():
@@ -181,9 +243,54 @@ def group_stats():
     stats_result = list(mongo.db.groups.aggregate(pipeline))
     group_stats_data = stats_result[0] if stats_result else {}
     
-    # Get detailed group analytics from view
+    # Get detailed group analytics with corrected messages_per_day calculation
     try:
-        group_analytics_data = DatabaseViews.get_view_data("group_analytics_summary", limit=10)
+        # Use aggregation pipeline to calculate correct messages_per_day
+        thirty_days_ago = datetime.datetime.now(timezone.utc) - datetime.timedelta(days=30)
+        
+        most_active_groups_pipeline = [
+            {"$match": {"is_active": True}},
+            {"$lookup": {
+                "from": "group_messages",
+                "localField": "_id",
+                "foreignField": "group_id",
+                "as": "messages"
+            }},
+            {"$addFields": {
+                "member_count": {"$size": "$members"},
+                "total_messages": {"$size": "$messages"},
+                "recent_messages": {
+                    "$size": {
+                        "$filter": {
+                            "input": "$messages",
+                            "cond": {"$gte": ["$$this.created_at", thirty_days_ago]}
+                        }
+                    }
+                }
+            }},
+            {"$addFields": {
+                "messages_per_day": {"$round": [{"$divide": ["$recent_messages", 30]}, 2]},
+                "messages_per_member": {
+                    "$cond": {
+                        "if": {"$gt": ["$member_count", 0]},
+                        "then": {"$round": [{"$divide": ["$total_messages", "$member_count"]}, 2]},
+                        "else": 0
+                    }
+                }
+            }},
+            {"$match": {"total_messages": {"$gt": 0}}},
+            {"$sort": {"total_messages": -1}},
+            {"$limit": 10},
+            {"$project": {
+                "name": 1,
+                "member_count": 1,
+                "total_messages": 1,
+                "messages_per_day": 1,
+                "messages_per_member": 1
+            }}
+        ]
+        
+        top_groups_result = list(mongo.db.groups.aggregate(most_active_groups_pipeline))
         top_groups = [
             {
                 "name": group.get("name", "Unknown"),
@@ -192,7 +299,7 @@ def group_stats():
                 "messages_per_day": group.get("messages_per_day", 0),
                 "messages_per_member": group.get("messages_per_member", 0)
             }
-            for group in group_analytics_data
+            for group in top_groups_result
         ]
     except Exception as e:
         print(f"Error getting group analytics data: {e}")
@@ -381,6 +488,122 @@ def presence_stats():
         "active_users_last_week": activity_stats.get("active_users_count", 0)
     })
 
+@bp.route('/analytics/call_stats', methods=['GET'])
+def call_stats():
+    """Get comprehensive call statistics for all users"""
+    try:
+        # Overall call statistics
+        total_calls = mongo.db.calls.count_documents({})
+        
+        # Call status distribution
+        status_pipeline = [
+            {"$group": {
+                "_id": "$status",
+                "count": {"$sum": 1}
+            }},
+            {"$sort": {"count": -1}}
+        ]
+        status_distribution = list(mongo.db.calls.aggregate(status_pipeline))
+        
+        # Call type distribution
+        type_pipeline = [
+            {"$group": {
+                "_id": "$call_type",
+                "count": {"$sum": 1}
+            }},
+            {"$sort": {"count": -1}}
+        ]
+        type_distribution = list(mongo.db.calls.aggregate(type_pipeline))
+        
+        # Daily call volume (last 30 days)
+        thirty_days_ago = datetime.datetime.now(timezone.utc) - datetime.timedelta(days=30)
+        daily_calls_pipeline = [
+            {"$match": {"start_time": {"$gte": thirty_days_ago}}},
+            {"$group": {
+                "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$start_time"}},
+                "total_calls": {"$sum": 1},
+                "answered_calls": {"$sum": {"$cond": [{"$and": [{"$ne": ["$status", "declined"]}, {"$ne": ["$status", "missed"]}]}, 1, 0]}},
+                "missed_calls": {"$sum": {"$cond": [{"$eq": ["$status", "missed"]}, 1, 0]}},
+                "declined_calls": {"$sum": {"$cond": [{"$eq": ["$status", "declined"]}, 1, 0]}}
+            }},
+            {"$sort": {"_id": 1}}
+        ]
+        daily_calls = list(mongo.db.calls.aggregate(daily_calls_pipeline))
+        
+        # Hourly call distribution
+        hourly_calls_pipeline = [
+            {"$match": {"start_time": {"$gte": thirty_days_ago}}},
+            {"$group": {
+                "_id": {"$hour": "$start_time"},
+                "count": {"$sum": 1},
+                "answered_rate": {"$avg": {"$cond": [{"$and": [{"$ne": ["$status", "declined"]}, {"$ne": ["$status", "missed"]}]}, 1, 0]}}
+            }},
+            {"$sort": {"_id": 1}}
+        ]
+        hourly_calls = list(mongo.db.calls.aggregate(hourly_calls_pipeline))
+        
+
+        
+        # Top callers
+        top_callers_pipeline = [
+            {"$group": {
+                "_id": "$caller_id",
+                "total_calls": {"$sum": 1},
+                "answered_calls": {"$sum": {"$cond": [{"$and": [{"$ne": ["$status", "declined"]}, {"$ne": ["$status", "missed"]}]}, 1, 0]}}
+            }},
+            {"$lookup": {
+                "from": "users",
+                "localField": "_id",
+                "foreignField": "_id",
+                "as": "user_info"
+            }},
+            {"$unwind": "$user_info"},
+            {"$project": {
+                "username": "$user_info.username",
+                "total_calls": 1,
+                "answered_calls": 1,
+                "answer_rate": {"$divide": ["$answered_calls", "$total_calls"]}
+            }},
+            {"$sort": {"total_calls": -1}},
+            {"$limit": 10}
+        ]
+        top_callers = list(mongo.db.calls.aggregate(top_callers_pipeline))
+        
+        # Recent calls
+        recent_calls = mongo.db.calls.count_documents({"start_time": {"$gte": thirty_days_ago}})
+        
+        # Answer rate calculation - anything not declined or missed is considered answered
+        answered_calls = sum(item["count"] for item in status_distribution if item["_id"] not in ["declined", "missed"])
+        answer_rate = round((answered_calls / max(total_calls, 1)) * 100, 1) if total_calls > 0 else 0
+        
+        response_data = {
+            "total_calls": total_calls,
+            "recent_calls_30d": recent_calls,
+            "status_distribution": status_distribution,
+            "type_distribution": type_distribution,
+            "daily_call_volume": serialize_datetime(daily_calls),
+            "hourly_call_distribution": hourly_calls,
+            "top_callers": top_callers,
+            "answer_rate": answer_rate
+        }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"Error getting call statistics: {e}")
+        return jsonify({
+            "total_calls": 0,
+            "recent_calls_30d": 0,
+            "status_distribution": [],
+            "type_distribution": [],
+            "daily_call_volume": [],
+            "hourly_call_distribution": [],
+            "top_callers": [],
+            "answer_rate": 0
+        })
+
+
+
 @bp.route('/analytics/views/create', methods=['POST'])
 def create_analytics_views():
     """Create or refresh all database views"""
@@ -418,9 +641,6 @@ def get_view_data(view_name):
             "message": f"Error getting view data: {str(e)}"
         }), 500
 
-@bp.route('/analytics', methods=['GET'])
-def analytics_page():
-    """Render the analytics page"""
-    return render_template('analytics.html')
+
 
 

@@ -4,6 +4,10 @@ from flask_pymongo import PyMongo
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from dotenv import load_dotenv
+
+# Load environment variables at the very beginning
+load_dotenv()
+
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import logging
@@ -87,6 +91,10 @@ def create_app(test_config=None, with_socketio=True):
     # Register call routes
     from app.api.call_routes import call_bp
     app.register_blueprint(call_bp)
+    
+    # Register AI chat routes
+    from app.api.ai_chat_routes import ai_chat_bp
+    app.register_blueprint(ai_chat_bp, url_prefix='/api/chat/ai')
     
     # Test route
     @app.route('/ping')

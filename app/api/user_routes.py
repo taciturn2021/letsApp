@@ -4,7 +4,7 @@ from marshmallow import ValidationError
 from app.models.user import User
 from app.models.media import Media
 from app.schemas.schema import UserProfileSchema, UserSettingsSchema, PasswordChangeSchema
-from app.schemas.schema import PasswordResetRequestSchema, PasswordResetSchema
+from app.schemas.schema import PasswordResetRequestSchema, PasswordResetSchema, ApiKeySchema
 from app.utils.file_handler import save_profile_picture
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -274,6 +274,75 @@ def reset_password():
         validated_data["token"],
         validated_data["new_password"]
     )
+    
+    if result["success"]:
+        return jsonify(result), 200
+    else:
+        return jsonify(result), 400
+
+# 6. API Key Management
+
+@bp.route('/<user_id>/api-key', methods=['PUT'])
+@jwt_required()
+def update_api_key(user_id):
+    """Update user's API key with encryption"""
+    current_user_id = get_jwt_identity()
+    
+    # Users can only update their own API key
+    if current_user_id != user_id:
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+    
+    data = request.get_json()
+    schema = ApiKeySchema()
+    
+    try:
+        validated_data = schema.load(data)
+    except ValidationError as err:
+        return jsonify({"success": False, "errors": err.messages}), 400
+    
+    # Update the API key
+    result = User.update_api_key(user_id, validated_data["api_key"])
+    
+    if result["success"]:
+        return jsonify(result), 200
+    else:
+        return jsonify(result), 400
+
+@bp.route('/<user_id>/api-key', methods=['GET'])
+@jwt_required()
+def get_api_key(user_id):
+    """Get user's decrypted API key"""
+    current_user_id = get_jwt_identity()
+    
+    # Users can only get their own API key
+    if current_user_id != user_id:
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+    
+    api_key = User.get_api_key(user_id)
+    
+    if api_key:
+        return jsonify({
+            "success": True,
+            "data": {"api_key": api_key}
+        }), 200
+    else:
+        return jsonify({
+            "success": False,
+            "message": "No API key found. Please set your API key first.",
+            "code": "NO_API_KEY"
+        }), 404
+
+@bp.route('/<user_id>/api-key', methods=['DELETE'])
+@jwt_required()
+def remove_api_key(user_id):
+    """Remove user's API key"""
+    current_user_id = get_jwt_identity()
+    
+    # Users can only remove their own API key
+    if current_user_id != user_id:
+        return jsonify({"success": False, "message": "Unauthorized"}), 403
+    
+    result = User.remove_api_key(user_id)
     
     if result["success"]:
         return jsonify(result), 200

@@ -4,6 +4,9 @@ import secrets
 from bson import ObjectId
 from app import mongo
 from app.models.media import Media
+import logging
+
+logger = logging.getLogger(__name__)
 
 class User:
     """User model for authentication and profile management."""
@@ -473,3 +476,117 @@ class User:
             return {"success": result.modified_count > 0, "message": "Profile picture removed successfully"}
         except Exception as e:
             return {"success": False, "message": f"Error removing profile picture: {str(e)}"}
+    
+    @staticmethod
+    def update_api_key(user_id, api_key):
+        """Update user's API key with encryption"""
+        try:
+            from app.utils.encryption import EncryptionManager
+            
+            # Encrypt the API key before storing
+            encrypted_api_key = EncryptionManager.encrypt(api_key)
+            
+            # Update the user's API key
+            result = mongo.db.users.update_one(
+                {"_id": ObjectId(user_id)},
+                {
+                    "$set": {
+                        "api_key": encrypted_api_key,
+                        "api_key_updated_at": datetime.datetime.utcnow(),
+                        "updated_at": datetime.datetime.utcnow()
+                    }
+                }
+            )
+            
+            if result.modified_count == 0:
+                logger.warning(f"Failed to update API key for user {user_id}")
+                return {"success": False, "message": "User not found or no changes made"}
+            
+            # Log the API key update in audit trail
+            audit_entry = {
+                "user_id": ObjectId(user_id),
+                "action": "api_key_update",
+                "timestamp": datetime.datetime.utcnow(),
+                "ip_address": None,  # Could be passed from request context
+                "user_agent": None   # Could be passed from request context
+            }
+            
+            mongo.db.user_audit_log.insert_one(audit_entry)
+            logger.info(f"API key updated for user {user_id}")
+            
+            return {"success": True, "message": "API key updated successfully"}
+            
+        except Exception as e:
+            logger.error(f"Error updating API key for user {user_id}: {str(e)}")
+            return {"success": False, "message": f"Error updating API key: {str(e)}"}
+    
+    @staticmethod
+    def get_api_key(user_id):
+        """Get and decrypt user's API key"""
+        try:
+            from app.utils.encryption import EncryptionManager
+            
+            user = mongo.db.users.find_one(
+                {"_id": ObjectId(user_id)}, 
+                {"api_key": 1}
+            )
+            
+            if not user or not user.get("api_key"):
+                return None
+            
+            # Try to decrypt the API key
+            try:
+                decrypted_api_key = EncryptionManager.decrypt(user["api_key"])
+                return decrypted_api_key
+            except Exception as decrypt_error:
+                # If decryption fails, the API key is corrupted or was encrypted with a different key
+                logger.warning(f"Failed to decrypt API key for user {user_id}, removing corrupted key: {str(decrypt_error)}")
+                
+                # Remove the corrupted API key from the database
+                mongo.db.users.update_one(
+                    {"_id": ObjectId(user_id)},
+                    {"$unset": {"api_key": "", "api_key_updated_at": ""}}
+                )
+                
+                return None
+            
+        except Exception as e:
+            logger.error(f"Error getting API key for user {user_id}: {str(e)}")
+            return None
+    
+    @staticmethod
+    def remove_api_key(user_id):
+        """Remove user's API key"""
+        try:
+            # Update the user document to remove the API key
+            result = mongo.db.users.update_one(
+                {"_id": ObjectId(user_id)},
+                {
+                    "$unset": {
+                        "api_key": "",
+                        "api_key_updated_at": ""
+                    },
+                    "$set": {
+                        "updated_at": datetime.datetime.utcnow()
+                    }
+                }
+            )
+            
+            if result.modified_count == 0:
+                return {"success": False, "message": "User not found or no API key to remove"}
+            
+            # Log the API key removal in audit trail
+            audit_entry = {
+                "user_id": ObjectId(user_id),
+                "action": "api_key_removal",
+                "timestamp": datetime.datetime.utcnow(),
+                "ip_address": None,  # Could be passed from request context
+                "user_agent": None   # Could be passed from request context
+            }
+            
+            mongo.db.user_audit_log.insert_one(audit_entry)
+            
+            return {"success": True, "message": "API key removed successfully"}
+            
+        except Exception as e:
+            return {"success": False, "message": f"Error removing API key: {str(e)}"}

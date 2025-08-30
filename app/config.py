@@ -19,6 +19,12 @@ class Config:
     # Pagination
     DEFAULT_PAGE_SIZE = 20
     MAX_PAGE_SIZE = 100
+    
+    # Encryption Configuration (using SECRET_KEY as base)
+    # This ensures consistent encryption key across app restarts
+    
+    # Gemini Configuration (replaces OpenAI)
+    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
 class DevelopmentConfig(Config):
     DEBUG = True

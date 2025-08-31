@@ -11,17 +11,16 @@ import datetime
 bp = Blueprint('messages', __name__)
 
 @bp.route('/sync', methods=['GET'])
-@jwt_required()
 def sync_messages():
     """
     Sync all messages related to the current user.
     This endpoint retrieves all conversations (direct messages and group chats)
     and returns them formatted for the client.
     """
-    current_user_id = get_jwt_identity()
     
+    currentUserID = '67f4e0afd24b9a7353e00451'
     # Get all direct message conversations
-    direct_conversations = get_direct_conversations(current_user_id)
+    direct_conversations = get_direct_conversations(currentUserID)
     
     # Get all group conversations
     # group_conversations = get_group_conversations(current_user_id)

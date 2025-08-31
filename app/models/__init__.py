@@ -6,6 +6,9 @@ from app.models.group_message import GroupMessage
 from app.models.contact import Contact
 from app.models.file import File
 from app.models.presence import Presence
+from app.models.media import Media
+from app.models.views import DatabaseViews
+from app.models.call import Call
 
 # Export all models
-__all__ = ['User', 'Message', 'Group', 'GroupMessage', 'Contact', 'File', 'Presence']
+__all__ = ['User', 'Message', 'Group', 'GroupMessage', 'Contact', 'File', 'Presence', 'Media', 'DatabaseViews', 'Call']

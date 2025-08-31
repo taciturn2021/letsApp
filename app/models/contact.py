@@ -31,8 +31,8 @@ class Contact:
             "user_id": ObjectId(user_id),
             "contact_id": ObjectId(contact_id),
             "status": Contact.STATUS_PENDING,
-            "created_at": datetime.datetime.utcnow(),
-            "updated_at": datetime.datetime.utcnow(),
+            "created_at": datetime.datetime.now(timezone.utc),
+            "updated_at": datetime.datetime.now(timezone.utc),
             "notes": "",
             "is_favorite": False
         }
@@ -60,7 +60,7 @@ class Contact:
             {
                 "$set": {
                     "status": Contact.STATUS_ACCEPTED,
-                    "updated_at": datetime.datetime.utcnow()
+                    "updated_at": datetime.datetime.now(timezone.utc)
                 }
             }
         )
@@ -76,8 +76,8 @@ class Contact:
                 "user_id": ObjectId(user_id),
                 "contact_id": ObjectId(contact_id),
                 "status": Contact.STATUS_ACCEPTED,
-                "created_at": datetime.datetime.utcnow(),
-                "updated_at": datetime.datetime.utcnow(),
+                "created_at": datetime.datetime.now(timezone.utc),
+                "updated_at": datetime.datetime.now(timezone.utc),
                 "notes": "",
                 "is_favorite": False
             })
@@ -87,7 +87,7 @@ class Contact:
                 {
                     "$set": {
                         "status": Contact.STATUS_ACCEPTED,
-                        "updated_at": datetime.datetime.utcnow()
+                        "updated_at": datetime.datetime.now(timezone.utc)
                     }
                 }
             )
@@ -110,7 +110,7 @@ class Contact:
                 {
                     "$set": {
                         "status": Contact.STATUS_BLOCKED,
-                        "updated_at": datetime.datetime.utcnow()
+                        "updated_at": datetime.datetime.now(timezone.utc)
                     }
                 }
             )
@@ -120,8 +120,8 @@ class Contact:
                 "user_id": ObjectId(user_id),
                 "contact_id": ObjectId(contact_id),
                 "status": Contact.STATUS_BLOCKED,
-                "created_at": datetime.datetime.utcnow(),
-                "updated_at": datetime.datetime.utcnow(),
+                "created_at": datetime.datetime.now(timezone.utc),
+                "updated_at": datetime.datetime.now(timezone.utc),
                 "notes": "",
                 "is_favorite": False
             })
@@ -140,7 +140,7 @@ class Contact:
             {
                 "$set": {
                     "status": Contact.STATUS_ACCEPTED,
-                    "updated_at": datetime.datetime.utcnow()
+                    "updated_at": datetime.datetime.now(timezone.utc)
                 }
             }
         )
@@ -194,7 +194,7 @@ class Contact:
             {
                 "$set": {
                     "is_favorite": is_favorite,
-                    "updated_at": datetime.datetime.utcnow()
+                    "updated_at": datetime.datetime.now(timezone.utc)
                 }
             }
         )

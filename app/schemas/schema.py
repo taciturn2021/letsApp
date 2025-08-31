@@ -31,3 +31,6 @@ class PasswordResetRequestSchema(Schema):
 class PasswordResetSchema(Schema):
     token = fields.Str(required=True)
     new_password = fields.Str(required=True, validate=validate.Length(min=6, max=50))
+
+class ApiKeySchema(Schema):
+    api_key = fields.Str(required=True, validate=validate.Length(min=1, max=500))

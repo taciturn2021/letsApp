@@ -29,7 +29,7 @@ def register_handlers(socketio):
         if recipient_id in connected_users:
             # Emit typing event to recipient
             emit('typing_indicator', {
-                'user_id': current_user,
+                'user_id': str(current_user),
                 'status': 'typing'
             }, room=f"user_{recipient_id}")
 
@@ -57,7 +57,7 @@ def register_handlers(socketio):
         if recipient_id in connected_users:
             # Emit typing stopped event to recipient
             emit('typing_indicator', {
-                'user_id': current_user,
+                'user_id': str(current_user),
                 'status': 'stopped'
             }, room=f"user_{recipient_id}")
 
@@ -84,7 +84,7 @@ def register_handlers(socketio):
         
         # Emit to the group room
         emit('group_typing_indicator', {
-            'user_id': current_user,
+            'user_id': str(current_user),
             'group_id': group_id,
             'status': 'typing'
         }, room=f"group_{group_id}")
@@ -111,7 +111,7 @@ def register_handlers(socketio):
         
         # Emit to the group room
         emit('group_typing_indicator', {
-            'user_id': current_user,
+            'user_id': str(current_user),
             'group_id': group_id,
             'status': 'stopped'
         }, room=f"group_{group_id}")

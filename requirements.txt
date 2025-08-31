@@ -1,16 +1,42 @@
-flask
-pymongo
-flask-pymongo
-python-dotenv
-bcrypt
-flask-jwt-extended
-flask-socketio
-flask-cors
-Werkzeug
-pydantic
-python-dateutil
-marshmallow
-Flask-Limiter
-Pillow
-flask-socketio 
-eventlet
+# LetsApp Backend Requirements
+
+# Core Flask Framework
+Flask>=2.3.0
+Werkzeug>=2.3.0
+
+# Database
+pymongo>=4.5.0
+flask-pymongo>=2.3.0
+
+# Authentication & Security
+flask-jwt-extended>=4.5.0
+bcrypt>=4.0.0
+cryptography>=41.0.0
+
+# Real-time Communication
+flask-socketio>=5.3.0
+eventlet>=0.33.0
+
+# Configuration & Environment
+python-dotenv>=1.0.0
+
+# HTTP & CORS
+flask-cors>=4.0.0
+requests>=2.31.0
+
+# Data Validation & Serialization
+pydantic>=2.0.0
+marshmallow>=3.20.0
+
+# Rate Limiting & Security
+Flask-Limiter>=3.5.0
+
+# Media & File Handling
+Pillow>=10.0.0
+python-magic-bin>=0.4.14
+
+# Utilities
+python-dateutil>=2.8.0
+
+# AI Integration
+google-generativeai>=0.3.0

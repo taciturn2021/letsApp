@@ -1,4 +1,5 @@
 import datetime
+from datetime import timezone
 from bson import ObjectId
 from app import mongo
 
@@ -23,8 +24,8 @@ class GroupMessage:
             "content": content,
             "message_type": message_type,
             "attachment": attachment,
-            "created_at": datetime.datetime.utcnow(),
-            "updated_at": datetime.datetime.utcnow(),
+            "created_at": datetime.datetime.now(timezone.utc),
+            "updated_at": datetime.datetime.now(timezone.utc),
             "read_by": [ObjectId(sender_id)],  # Sender automatically marks as read
             "is_deleted": False
         }
@@ -35,7 +36,7 @@ class GroupMessage:
         # Update the group's updated_at timestamp
         mongo.db.groups.update_one(
             {"_id": ObjectId(group_id)},
-            {"$set": {"updated_at": datetime.datetime.utcnow()}}
+            {"$set": {"updated_at": datetime.datetime.now(timezone.utc)}}
         )
         
         return message
@@ -73,7 +74,7 @@ class GroupMessage:
             {"_id": ObjectId(message_id)},
             {
                 "$addToSet": {"read_by": ObjectId(user_id)},
-                "$set": {"updated_at": datetime.datetime.utcnow()}
+                "$set": {"updated_at": datetime.datetime.now(timezone.utc)}
             }
         )
         return result.modified_count > 0
@@ -89,7 +90,7 @@ class GroupMessage:
             },
             {
                 "$addToSet": {"read_by": ObjectId(user_id)},
-                "$set": {"updated_at": datetime.datetime.utcnow()}
+                "$set": {"updated_at": datetime.datetime.now(timezone.utc)}
             }
         )
         return result.modified_count
@@ -113,7 +114,7 @@ class GroupMessage:
                 {
                     "$set": {
                         "is_deleted": True,
-                        "updated_at": datetime.datetime.utcnow()
+                        "updated_at": datetime.datetime.now(timezone.utc)
                     }
                 }
             )

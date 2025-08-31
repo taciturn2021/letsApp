@@ -4,8 +4,17 @@ from flask_pymongo import PyMongo
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from dotenv import load_dotenv
+
+# Load environment variables at the very beginning
+load_dotenv()
+
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+import logging
+
+# Disable PyMongo debug logging
+logging.getLogger('pymongo').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 mongo = PyMongo()
 jwt = JWTManager()
@@ -32,6 +41,7 @@ def create_app(test_config=None, with_socketio=True):
         os.makedirs(app.instance_path)
         os.makedirs(app.config['UPLOAD_FOLDER'])
         os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'profile_pictures'))
+        os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], 'group_icons'))
     except OSError:
         pass
     
@@ -42,14 +52,14 @@ def create_app(test_config=None, with_socketio=True):
     frontend_origin = app.config['FRONTEND']
     print(f"CORS is configured for origin: {frontend_origin}")
 
-# Replace the existing CORS configuration with this more permissive one for development
+    # Replace the existing CORS configuration with this more permissive one for development
     CORS(app, 
      origins=[frontend_origin, "http://localhost:3787"],  # Explicitly add both origins
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
      allow_headers=["Content-Type", "Authorization"],
      supports_credentials=True)
     
-    #configure Flask-Limiter
+    # Configure Flask-Limiter
     limiter = Limiter(
         get_remote_address,
         app=app,
@@ -72,6 +82,20 @@ def create_app(test_config=None, with_socketio=True):
     from app.api.messages_routes import bp as messages_bp
     app.register_blueprint(messages_bp, url_prefix='/api/messages')
     
+    from app.api.media_routes import bp as media_bp
+    app.register_blueprint(media_bp, url_prefix='/api/media')
+    
+    from app.api.group_routes import bp as groups_bp
+    app.register_blueprint(groups_bp, url_prefix='/api/groups')
+    
+    # Register call routes
+    from app.api.call_routes import call_bp
+    app.register_blueprint(call_bp)
+    
+    # Register AI chat routes
+    from app.api.ai_chat_routes import ai_chat_bp
+    app.register_blueprint(ai_chat_bp, url_prefix='/api/chat/ai')
+    
     # Test route
     @app.route('/ping')
     def ping():
@@ -86,7 +110,13 @@ def create_app(test_config=None, with_socketio=True):
             
             # Create SocketIO instance
             socketio = SocketIO()
-            socketio.init_app(app, cors_allowed_origins=[app.config['FRONTEND']])
+            socketio.init_app(app, cors_allowed_origins=[
+                app.config['FRONTEND'], 
+                "http://localhost:3787"
+            ])
+            
+            # Store socketio instance in app for access from routes
+            app.socketio = socketio
             
             # Register all socket event handlers
             from app.realtime.events import register_handlers as register_events
@@ -100,6 +130,13 @@ def create_app(test_config=None, with_socketio=True):
             
             from app.realtime.chat import register_handlers as register_chat
             register_chat(socketio)
+            
+            from app.realtime.group_chat import register_handlers as register_group_chat
+            register_group_chat(socketio)
+            
+            # Register calling handlers
+            from app.realtime.calling import register_handlers as register_calling
+            register_calling(socketio)
             
             print("SocketIO initialized successfully")
         except Exception as e:
